@@ -25,6 +25,8 @@ All flags default to `false` unless noted.
 | `STEEL_SESSION_RECOVERY_SWEEP_INTERVAL_MS` | Scheduler stale-worker sweep interval. Default `5000`. | Periodic health/recovery sweep. |
 | `STEEL_REMOTE_STORAGE_ENABLED` | Reported by the no-op status service only. | Enable durable metadata/artifact storage. |
 | `STEEL_CHALLENGE_DETECTION_ENABLED` | Reported by the no-op status service only. | Enable challenge detection metadata and operator-visible state, not bypass/solving. |
+| `CHALLENGE_ASSISTANCE_MODE` | `off` by default. `owned-test-auto` enables the synthetic owned-test provider only when `CHALLENGE_ASSISTANCE_ALLOWED_ORIGINS` exactly matches the page origin. | Diploma/testing harnesses may post sanitized element inventories marked with `data-steel-owned-challenge="true"`; the API returns safe fill/click actions from owned data attributes and rejects known real challenge widgets/classes/sitekeys. |
+| `CHALLENGE_ASSISTANCE_ALLOWED_ORIGINS` | Empty by default. Comma-separated exact origins only; paths, credentials, query strings, hashes, and subdomain wildcards are ignored/rejected. | Required before any challenge assistance route accepts a URL. |
 | `STEEL_PROXY_MANAGEMENT_ENABLED` | Reported by the no-op status service only. | Enable proxy inventory and policy. |
 
 ## Route surface
@@ -45,3 +47,10 @@ The response is a no-op capability report. Each capability includes `enabled` an
 - Remote storage must redact credentials and avoid logging raw signed URLs, tokens, proxy credentials, cookies, or API keys.
 - Challenge detection may classify and surface state; it must not integrate CAPTCHA solvers or automate bypasses.
 - Proxy management should treat proxy URLs as secrets and use the shared redaction utility in logs/errors.
+
+
+### Owned-test auto challenge provider
+
+`CHALLENGE_ASSISTANCE_MODE=owned-test-auto` is a disabled-by-default demo provider for owned diploma/testing harness pages only. It requires an exact-origin entry in `CHALLENGE_ASSISTANCE_ALLOWED_ORIGINS` and a sanitized element inventory; do not send cookies, authorization headers, page HTML, screenshots, audio, challenge tokens, or third-party provider payloads.
+
+The harness must mark every actionable synthetic element with `data-steel-owned-challenge="true"`. Fields are filled only when a marked element has `data-steel-owned-challenge-field` plus either a matching `fieldValues` entry or `data-steel-owned-challenge-value`. Buttons are clicked only when a marked element has `data-steel-owned-challenge-submit="true"` or `data-steel-owned-challenge-click="true"`. Known real challenge widget classes, selectors, or sitekey-like attributes are rejected instead of solved.

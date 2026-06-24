@@ -6,12 +6,14 @@ import type {
   ChallengeDetectionRequest,
   ChallengeReportRequest,
   ManualHandoffRequest,
+  OwnedTestAutoRequest,
   OwnedTestCallbackRequest,
   ChallengeAssistanceResponse,
 } from "./challenges.schema.js";
 
 const service = createChallengeAssistanceService({
   enabled: env.CHALLENGE_ASSISTANCE_ENABLED,
+  mode: env.CHALLENGE_ASSISTANCE_MODE,
   allowedOrigins: env.CHALLENGE_ASSISTANCE_ALLOWED_ORIGINS,
   ownedTestCallbackSecret: env.CHALLENGE_OWNED_TEST_CALLBACK_SECRET,
   ownedTestCallbackMaxSkewMs: env.CHALLENGE_OWNED_TEST_CALLBACK_MAX_SKEW_MS,
@@ -23,6 +25,8 @@ const statusCodeFor = (result: ChallengeAssistanceResponse): number => {
     case "origin_not_allowed":
     case "callback_secret_not_configured":
       return 403;
+    case "owned_test_auto_rejected":
+      return 422;
     case "invalid_signature":
       return 401;
     case "callback_accepted":
@@ -94,6 +98,27 @@ async function routes(server: FastifyInstance) {
     },
     async (request: ManualHandoffRequest, reply: FastifyReply) =>
       send(reply, service.requestManualHandoff(request.body)),
+  );
+
+  server.post(
+    "/challenge-assistance/owned-test-auto",
+    {
+      schema: {
+        operationId: "owned_test_challenge_auto",
+        description:
+          "Testing-harness-only owned challenge auto provider. It requires CHALLENGE_ASSISTANCE_MODE=owned-test-auto, an exact allowlisted origin, explicit data-steel-owned-challenge markers, and rejects known real challenge widgets/classes/sitekeys.",
+        tags: ["Challenge Assistance"],
+        summary: "Plan safe owned-test challenge actions",
+        body: $ref("OwnedTestAutoRequest"),
+        response: {
+          200: $ref("ChallengeAssistanceResponse"),
+          403: $ref("ChallengeAssistanceResponse"),
+          422: $ref("ChallengeAssistanceResponse"),
+        },
+      },
+    },
+    async (request: OwnedTestAutoRequest, reply: FastifyReply) =>
+      send(reply, service.runOwnedTestAuto(request.body)),
   );
 
   server.post(

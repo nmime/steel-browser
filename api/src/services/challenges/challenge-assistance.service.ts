@@ -3,14 +3,21 @@ import type {
   ChallengeDetectionBody,
   ChallengeReportBody,
   ManualHandoffBody,
+  OwnedTestAutoBody,
   OwnedTestCallbackBody,
   ChallengeAssistanceResponse,
 } from "../../modules/challenges/challenges.schema.js";
 
 type ChallengeKind = NonNullable<ChallengeAssistanceResponse["challenge"]>["kind"];
+type ChallengeAssistanceMode = NonNullable<ChallengeAssistanceResponse["ownedTestAuto"]>["mode"];
+type OwnedTestAutoElement = OwnedTestAutoBody["elements"][number];
+type OwnedTestAutoAction = NonNullable<
+  NonNullable<ChallengeAssistanceResponse["ownedTestAuto"]>["actions"]
+>[number];
 
 export type ChallengeAssistanceConfig = {
   enabled: boolean;
+  mode?: ChallengeAssistanceMode;
   allowedOrigins: string | string[];
   ownedTestCallbackSecret?: string;
   ownedTestCallbackMaxSkewMs?: number;
@@ -18,14 +25,33 @@ export type ChallengeAssistanceConfig = {
 
 export const CHALLENGE_SAFE_HANDLING = [
   "Challenge assistance is disabled by default and only accepts exact-origin allowlisted URLs.",
-  "This service records redacted diagnostics and can request manual handoff; it does not automate challenge completion.",
+  "This service records redacted diagnostics and can request manual handoff; it does not automate third-party or real-world challenge completion.",
+  'Owned-test auto mode is only for synthetic diploma/testing harness pages marked with data-steel-owned-challenge="true".',
   "Do not send cookies, authorization headers, page HTML, images, audio, challenge tokens, or provider payloads.",
+];
+
+const OWNED_TEST_PROVIDER = "owned-test-auto" as const;
+const OWNED_TEST_MARKER_ATTR = "data-steel-owned-challenge";
+const OWNED_TEST_FIELD_ATTR = "data-steel-owned-challenge-field";
+const OWNED_TEST_VALUE_ATTR = "data-steel-owned-challenge-value";
+const OWNED_TEST_SUBMIT_ATTR = "data-steel-owned-challenge-submit";
+const OWNED_TEST_CLICK_ATTR = "data-steel-owned-challenge-click";
+
+const OWNED_TEST_SAFETY_CHECKS = [
+  "exact-origin allowlist matched",
+  "owned marker attribute required",
+  "known real challenge widgets/classes/sitekeys rejected",
+  "only safe fill/click actions from owned data attributes are returned",
+  "no cookies, page HTML, screenshots, tokens, or provider payloads accepted",
 ];
 
 const SECRET_KEY_PATTERN = /(cookie|authorization|password|secret|token|key|credential|session)/i;
 const TOKEN_LIKE_PATTERN = /\b(?:bearer\s+)?[A-Za-z0-9._~+/=-]{24,}\b/g;
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const PHONE_PATTERN = /\+?\b\d[\d(). -]{7,}\d\b/g;
+const REAL_CHALLENGE_ATTR_PATTERN = /(^|[-_])(sitekey|response|enterprise)([-_]|$)/i;
+const REAL_CHALLENGE_WIDGET_PATTERN =
+  /\b(g-recaptcha|grecaptcha|h-captcha|hcaptcha|cf-turnstile|turnstile|challenges\.cloudflare\.com|recaptcha\/|api2\/anchor)\b/i;
 
 const normalizeText = (value: unknown, maxLength: number): string | undefined => {
   if (typeof value !== "string") return undefined;
@@ -150,14 +176,78 @@ const response = (
   ...partial,
 });
 
+const normalizeMode = (mode: ChallengeAssistanceMode | undefined): ChallengeAssistanceMode =>
+  mode ?? "off";
+
+const readAttribute = (element: OwnedTestAutoElement, name: string): string | undefined => {
+  const entries = Object.entries(element.attributes ?? {});
+  const match = entries.find(([key]) => key.toLowerCase() === name.toLowerCase());
+  return normalizeText(match?.[1], 512);
+};
+
+const hasOwnedTestMarker = (element: OwnedTestAutoElement): boolean =>
+  readAttribute(element, OWNED_TEST_MARKER_ATTR)?.toLowerCase() === "true";
+
+const isTruthyAttribute = (element: OwnedTestAutoElement, name: string): boolean => {
+  const value = readAttribute(element, name)?.toLowerCase();
+  return value === "true" || value === "1" || value === "yes";
+};
+
+const hasKnownRealChallengeSignal = (element: OwnedTestAutoElement): boolean => {
+  const selector = normalizeText(element.selector, 512) ?? "";
+  const tagName = normalizeText(element.tagName, 64) ?? "";
+  const text = normalizeText(element.text, 512) ?? "";
+  const attributeText = Object.entries(element.attributes ?? {})
+    .map(([key, value]) => `${key}=${value}`)
+    .join(" ");
+
+  if (Object.keys(element.attributes ?? {}).some((key) => REAL_CHALLENGE_ATTR_PATTERN.test(key))) {
+    return true;
+  }
+
+  return REAL_CHALLENGE_WIDGET_PATTERN.test(`${selector} ${tagName} ${text} ${attributeText}`);
+};
+
+const buildOwnedTestAutoActions = (input: OwnedTestAutoBody): OwnedTestAutoAction[] => {
+  const actions: OwnedTestAutoAction[] = [];
+
+  for (const element of input.elements) {
+    if (!hasOwnedTestMarker(element)) continue;
+
+    const selector = normalizeText(element.selector, 512);
+    if (!selector) continue;
+
+    const field = readAttribute(element, OWNED_TEST_FIELD_ATTR);
+    if (field) {
+      const configuredValue = input.fieldValues?.[field];
+      const attributeValue = readAttribute(element, OWNED_TEST_VALUE_ATTR);
+      const value = normalizeText(configuredValue ?? attributeValue, 256);
+      if (value) {
+        actions.push({ type: "fill", selector, field, value });
+      }
+    }
+
+    if (
+      isTruthyAttribute(element, OWNED_TEST_SUBMIT_ATTR) ||
+      isTruthyAttribute(element, OWNED_TEST_CLICK_ATTR)
+    ) {
+      actions.push({ type: "click", selector });
+    }
+  }
+
+  return actions.slice(0, 20);
+};
+
 export class ChallengeAssistanceService {
   private readonly enabled: boolean;
+  private readonly mode: ChallengeAssistanceMode;
   private readonly allowedOrigins: string[];
   private readonly ownedTestCallbackSecret?: string;
   private readonly ownedTestCallbackMaxSkewMs: number;
 
   constructor(config: ChallengeAssistanceConfig) {
-    this.enabled = config.enabled;
+    this.mode = normalizeMode(config.mode);
+    this.enabled = config.enabled || this.mode !== "off";
     this.allowedOrigins = normalizeAllowedOrigins(config.allowedOrigins);
     this.ownedTestCallbackSecret = config.ownedTestCallbackSecret;
     this.ownedTestCallbackMaxSkewMs = config.ownedTestCallbackMaxSkewMs ?? 5 * 60 * 1000;
@@ -266,11 +356,118 @@ export class ChallengeAssistanceService {
     });
   }
 
+  runOwnedTestAuto(input: OwnedTestAutoBody): ChallengeAssistanceResponse {
+    const gate = this.requireEnabledAllowed(input.url);
+    if (gate) {
+      return {
+        ...gate,
+        ownedTestAuto: {
+          provider: OWNED_TEST_PROVIDER,
+          mode: this.mode,
+          status: gate.status === "disabled" ? "disabled" : "rejected",
+          reason: gate.status,
+          scannedElements: input.elements.length,
+          safetyChecks: OWNED_TEST_SAFETY_CHECKS,
+        },
+      };
+    }
+
+    const allowedOrigin = parseOrigin(input.url);
+    const redacted = { url: redactUrl(input.url) };
+
+    if (this.mode !== "owned-test-auto") {
+      return response("owned_test_auto_rejected", this.enabled, {
+        allowedOrigin,
+        redacted,
+        error:
+          "Owned-test auto provider is disabled. Set CHALLENGE_ASSISTANCE_MODE=owned-test-auto for testing harness pages only.",
+        ownedTestAuto: {
+          provider: OWNED_TEST_PROVIDER,
+          mode: this.mode,
+          status: "disabled",
+          reason: "mode_not_owned_test_auto",
+          scannedElements: input.elements.length,
+          safetyChecks: OWNED_TEST_SAFETY_CHECKS,
+        },
+      });
+    }
+
+    if (input.elements.some(hasKnownRealChallengeSignal)) {
+      return response("owned_test_auto_rejected", this.enabled, {
+        allowedOrigin,
+        redacted,
+        error:
+          "Known real challenge widget, class, or sitekey signal detected; owned-test auto refused.",
+        ownedTestAuto: {
+          provider: OWNED_TEST_PROVIDER,
+          mode: this.mode,
+          status: "rejected",
+          reason: "known_real_challenge_signal_detected",
+          scannedElements: input.elements.length,
+          safetyChecks: OWNED_TEST_SAFETY_CHECKS,
+        },
+      });
+    }
+
+    if (!input.elements.some(hasOwnedTestMarker)) {
+      return response("owned_test_auto_rejected", this.enabled, {
+        allowedOrigin,
+        redacted,
+        error: `No ${OWNED_TEST_MARKER_ATTR}=\"true\" marker found in sanitized test harness elements.`,
+        ownedTestAuto: {
+          provider: OWNED_TEST_PROVIDER,
+          mode: this.mode,
+          status: "rejected",
+          reason: "owned_marker_missing",
+          scannedElements: input.elements.length,
+          safetyChecks: OWNED_TEST_SAFETY_CHECKS,
+        },
+      });
+    }
+
+    const actions = buildOwnedTestAutoActions(input);
+    if (!actions.length) {
+      return response("owned_test_auto_rejected", this.enabled, {
+        allowedOrigin,
+        redacted,
+        error:
+          "Owned marker found, but no safe owned field or click action attributes were provided.",
+        ownedTestAuto: {
+          provider: OWNED_TEST_PROVIDER,
+          mode: this.mode,
+          status: "rejected",
+          reason: "owned_actions_missing",
+          scannedElements: input.elements.length,
+          safetyChecks: OWNED_TEST_SAFETY_CHECKS,
+        },
+      });
+    }
+
+    return response("owned_test_auto_ready", this.enabled, {
+      allowedOrigin,
+      redacted,
+      challenge: {
+        suspected: true,
+        kind: "bot_check",
+        provider: OWNED_TEST_PROVIDER,
+        indicators: ["owned test marker"],
+      },
+      ownedTestAuto: {
+        provider: OWNED_TEST_PROVIDER,
+        mode: this.mode,
+        status: "ready",
+        scannedElements: input.elements.length,
+        actions,
+        safetyChecks: OWNED_TEST_SAFETY_CHECKS,
+      },
+    });
+  }
+
   private requireEnabledAllowed(url: string): ChallengeAssistanceResponse | undefined {
     if (!this.enabled) {
       return response("disabled", this.enabled, {
         error:
-          "Challenge assistance is disabled. Set CHALLENGE_ASSISTANCE_ENABLED=true to enable this skeleton.",
+          "Challenge assistance is disabled. Set CHALLENGE_ASSISTANCE_ENABLED=true or CHALLENGE_ASSISTANCE_MODE=owned-test-auto to enable testing-only assistance.",
       });
     }
 

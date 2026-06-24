@@ -134,6 +134,10 @@ const envSchema = z.object({
   STEEL_TRACE_ARTIFACTS_MAX_EVENTS: integerString("10000"),
   STEEL_TRACE_ARTIFACTS_PREFIX: z.string().optional().default("telemetry/artifacts"),
   CHALLENGE_ASSISTANCE_ENABLED: booleanString(),
+  CHALLENGE_ASSISTANCE_MODE: z
+    .enum(["off", "detect-only", "owned-test-auto"])
+    .optional()
+    .default("off"),
   CHALLENGE_ASSISTANCE_ALLOWED_ORIGINS: z.string().optional().default(""),
   CHALLENGE_OWNED_TEST_CALLBACK_SECRET: z.string().optional(),
   CHALLENGE_OWNED_TEST_CALLBACK_MAX_SKEW_MS: z

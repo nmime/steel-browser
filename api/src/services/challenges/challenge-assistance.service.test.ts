@@ -139,4 +139,120 @@ describe("challenge assistance service", () => {
 
     vi.useRealTimers();
   });
+
+  it("keeps owned-test auto disabled unless the explicit mode is selected", () => {
+    const service = createChallengeAssistanceService({
+      enabled: true,
+      mode: "detect-only",
+      allowedOrigins: ["https://example.com"],
+    });
+
+    expect(
+      service.runOwnedTestAuto({
+        url: "https://example.com/challenge",
+        elements: [
+          {
+            selector: "#owned-answer",
+            attributes: {
+              "data-steel-owned-challenge": "true",
+              "data-steel-owned-challenge-field": "answer",
+              "data-steel-owned-challenge-value": "steel",
+            },
+          },
+        ],
+      }),
+    ).toMatchObject({
+      status: "owned_test_auto_rejected",
+      ownedTestAuto: { status: "disabled", reason: "mode_not_owned_test_auto" },
+    });
+  });
+
+  it("plans only safe fill and click actions for explicitly marked owned-test elements", () => {
+    const service = createChallengeAssistanceService({
+      enabled: false,
+      mode: "owned-test-auto",
+      allowedOrigins: ["https://example.com"],
+    });
+
+    const result = service.runOwnedTestAuto({
+      url: "https://example.com/challenge?secret=redacted",
+      fieldValues: { answer: "diploma-demo" },
+      elements: [
+        {
+          selector: "#owned-answer",
+          tagName: "input",
+          attributes: {
+            "data-steel-owned-challenge": "true",
+            "data-steel-owned-challenge-field": "answer",
+          },
+        },
+        {
+          selector: "#owned-submit",
+          tagName: "button",
+          attributes: {
+            "data-steel-owned-challenge": "true",
+            "data-steel-owned-challenge-submit": "true",
+          },
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      status: "owned_test_auto_ready",
+      assistanceEnabled: true,
+      allowedOrigin: "https://example.com",
+      redacted: { url: "https://example.com/challenge" },
+      challenge: { provider: "owned-test-auto", kind: "bot_check" },
+      ownedTestAuto: {
+        provider: "owned-test-auto",
+        mode: "owned-test-auto",
+        status: "ready",
+        scannedElements: 2,
+        actions: [
+          { type: "fill", selector: "#owned-answer", field: "answer", value: "diploma-demo" },
+          { type: "click", selector: "#owned-submit" },
+        ],
+      },
+    });
+  });
+
+  it("rejects owned-test auto when exact origin, owned markers, or real-widget guards fail", () => {
+    const service = createChallengeAssistanceService({
+      enabled: false,
+      mode: "owned-test-auto",
+      allowedOrigins: ["https://example.com"],
+    });
+
+    expect(
+      service.runOwnedTestAuto({
+        url: "https://sub.example.com/challenge",
+        elements: [{ selector: "#owned", attributes: { "data-steel-owned-challenge": "true" } }],
+      }),
+    ).toMatchObject({ status: "origin_not_allowed" });
+
+    expect(
+      service.runOwnedTestAuto({
+        url: "https://example.com/challenge",
+        elements: [{ selector: "#owned", attributes: { "data-test-id": "challenge" } }],
+      }),
+    ).toMatchObject({
+      status: "owned_test_auto_rejected",
+      ownedTestAuto: { reason: "owned_marker_missing" },
+    });
+
+    expect(
+      service.runOwnedTestAuto({
+        url: "https://example.com/challenge",
+        elements: [
+          {
+            selector: ".cf-turnstile",
+            attributes: { "data-steel-owned-challenge": "true", "data-sitekey": "public" },
+          },
+        ],
+      }),
+    ).toMatchObject({
+      status: "owned_test_auto_rejected",
+      ownedTestAuto: { reason: "known_real_challenge_signal_detected" },
+    });
+  });
 });
