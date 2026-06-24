@@ -22,6 +22,13 @@ export interface BrowserOrgExtensionsExtra {
 
 export interface BrowserLaunchExtra {
   orgExtensions?: BrowserOrgExtensionsExtra;
+  /**
+   * When true (and CAPTCHA_SOLVER_ALLOW_PROVIDER_EXTENSION is set), the session
+   * loads the configured provider CAPTCHA-solving extension. Defaults to true
+   * (extension loaded for every session when the global flag is on); set to
+   * false to opt a specific session out.
+   */
+  captchaSolverExtension?: boolean;
   [key: string]: unknown;
 }
 

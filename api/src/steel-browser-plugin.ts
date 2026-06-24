@@ -19,6 +19,7 @@ import {
   actionsRoutes,
   authRoutes,
   challengesRoutes,
+  captchaRoutes,
   cdpRoutes,
   filesRoutes,
   extensionRoutes,
@@ -107,6 +108,7 @@ const steelBrowserPlugin: FastifyPluginAsync<SteelBrowserConfig> = async (fastif
   await fastify.register(authRoutes, { prefix: "/v1" });
   await fastify.register(actionsRoutes, { prefix: "/v1" });
   await fastify.register(challengesRoutes, { prefix: "/v1" });
+  await fastify.register(captchaRoutes, { prefix: "/v1" });
   await fastify.register(sessionsRoutes, { prefix: "/v1" });
   await fastify.register(vaultRoutes, { prefix: "/v1" });
   await fastify.register(profilesRoutes, { prefix: "/v1" });

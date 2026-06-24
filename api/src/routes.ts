@@ -1,6 +1,7 @@
 export { default as authRoutes } from "./modules/auth/auth.routes.js";
 export { default as actionsRoutes } from "./modules/actions/actions.routes.js";
 export { default as challengesRoutes } from "./modules/challenges/challenges.routes.js";
+export { default as captchaRoutes } from "./modules/captcha/captcha.routes.js";
 export { default as sessionsRoutes } from "./modules/sessions/sessions.routes.js";
 export { default as seleniumRoutes } from "./modules/selenium/selenium.routes.js";
 export { default as cdpRoutes } from "./modules/cdp/cdp.routes.js";

@@ -9,6 +9,7 @@ import logsSchemas from "../modules/logs/logs.schema.js";
 import browserSchemas from "../modules/sessions/sessions.schema.js";
 import seleniumSchemas from "../modules/selenium/selenium.schema.js";
 import challengeSchemas from "../modules/challenges/challenges.schema.js";
+import captchaSchemas from "../modules/captcha/captcha.schema.js";
 import profileSchemas from "../modules/profiles/profiles.schema.js";
 import proxySchemas from "../modules/proxies/proxies.schema.js";
 import vaultSchemas from "../modules/vault/vault.schema.js";
@@ -28,6 +29,7 @@ const SCHEMAS = {
   ...seleniumSchemas,
   ...filesSchemas,
   ...challengeSchemas,
+  ...captchaSchemas,
   ...extensionSchemas,
   ...telemetrySchemas,
   ...authSchemas,

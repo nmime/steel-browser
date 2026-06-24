@@ -148,6 +148,24 @@ const envSchema = z.object({
       return Number.isFinite(parsed) ? parsed : 300000;
     })
     .default("300000"),
+  CAPTCHA_SOLVER_ENABLED: booleanString(),
+  CAPTCHA_SOLVER_MODE: z
+    .enum(["off", "detect-only", "auto"])
+    .optional()
+    .default("auto"),
+  CAPTCHA_SOLVER_PROVIDER: z
+    .enum(["2captcha", "capsolver", "anti-captcha", "capmonster"])
+    .optional()
+    .default("2captcha"),
+  CAPTCHA_SOLVER_API_KEY: z.string().optional(),
+  CAPTCHA_SOLVER_ALLOWED_ORIGINS: z.string().optional().default(""),
+  CAPTCHA_SOLVER_ALLOW_ANY_ORIGIN: booleanString(),
+  CAPTCHA_SOLVER_TIMEOUT_MS: integerString("180000"),
+  CAPTCHA_SOLVER_POLL_INTERVAL_MS: integerString("5000"),
+  CAPTCHA_SOLVER_IMAGE_ENABLED: booleanString(),
+  CAPTCHA_SOLVER_MAX_IMAGE_BYTES: integerString("5242880"),
+  CAPTCHA_SOLVER_ALLOW_PROVIDER_EXTENSION: booleanString(),
+  CAPTCHA_SOLVER_PROVIDER_EXTENSION: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);

@@ -768,6 +768,24 @@ export class CDPService extends EventEmitter {
               ? [...this.launchConfig!.extensions]
               : [];
 
+            // Provider-extension escape hatch: when both flags are set, load the
+            // configured provider CAPTCHA-solving browser extension. The
+            // extension solves OUTSIDE the origin gate and holds its own API
+            // key — this is an explicit opt-in for maximum coverage.
+            const sessionWantsSolverExtension =
+              this.launchConfig!.extra?.captchaSolverExtension === true ||
+              this.launchConfig!.extra?.captchaSolverExtension === undefined;
+            if (
+              env.CAPTCHA_SOLVER_ALLOW_PROVIDER_EXTENSION &&
+              env.CAPTCHA_SOLVER_PROVIDER_EXTENSION &&
+              sessionWantsSolverExtension
+            ) {
+              customExtensions.push(env.CAPTCHA_SOLVER_PROVIDER_EXTENSION);
+              this.logger.warn(
+                `[CDPService] captcha provider extension "${env.CAPTCHA_SOLVER_PROVIDER_EXTENSION}" loaded (solver escape hatch active — operates outside the origin gate)`,
+              );
+            }
+
             // Get named extension paths
             const namedExtensionPaths = await getExtensionPaths([
               ...defaultExtensions,
