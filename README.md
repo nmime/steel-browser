@@ -55,6 +55,7 @@ Under the hood, it manages sessions, pages, and browser processes, allowing you 
 - **Anti-Detection**: Includes stealth plugins and fingerprint management
 - **Resource Management**: Automatic cleanup and browser lifecycle management
 - **Browser Tools**: Exposes APIs to quick convert pages to markdown, readability, screenshots, or PDFs.
+- **CAPTCHA Solving**: Gated, pluggable CAPTCHA solver with support for 21 widget types (reCAPTCHA v2/v3, hCaptcha, Cloudflare Turnstile, GeeTest, Arkose/FunCaptcha, Yandex, Amazon WAF, Tencent, Capy, CyberSiARA, MTCaptcha, Friendly Captcha, Cutcaptcha, plus image/puzzle widgets) via 2Captcha, CapSolver, Anti-Captcha, or CapMonster. See [CAPTCHA_SOLVER.md](./docs/CAPTCHA_SOLVER.md).
 
 
 For detailed API documentation and examples, check out our [API reference](https://docs.steel.dev/api-reference) or explore the Swagger UI directly at `http://0.0.0.0:3000/documentation`.
@@ -332,6 +333,80 @@ curl -X POST http://0.0.0.0:3000/v1/pdf \
   }' --output output.pdf
 ```
 </details>
+
+### CAPTCHA Solving
+The `/v1/captcha/detect` and `/v1/captcha/solve` endpoints let an AI agent inspect and solve CAPTCHAs on the live session page. The solver is **gated** — disabled by default and only runs against exact origins you explicitly allowlist, so it never fires on a site you haven't authorized.
+
+It detects the widget on the live page, sends the sitekey (or a captured image) to a configured provider, and injects the returned token back into the page. Supported widget families:
+
+| Category | Widgets |
+| --- | --- |
+| **Token** (sitekey → token → inject) | reCAPTCHA v2/v3, hCaptcha, Cloudflare Turnstile, GeeTest v3/v4, Arkose/FunCaptcha, Yandex SmartCaptcha, Amazon WAF, Tencent, Capy Puzzle, CyberSiARA, MTCaptcha, Friendly Captcha, Cutcaptcha |
+| **Image / puzzle** (capture → text/coords → apply) | Normal/Text, Grid, Click, Rotate, Canvas, Audio |
+
+Providers: **2Captcha**, **CapSolver**, **Anti-Captcha**, **CapMonster Cloud**. Each declares exactly the widget types it supports, so an unsupported combination surfaces a typed error instead of failing silently.
+
+> **For AI agents:** `/detect` is a free, no-cost inspection — it tells you whether a CAPTCHA is present and what kind, without calling a provider. Use it before `/solve` to decide whether solving is worth it. `/solve` either auto-detects the first widget or accepts one you pass explicitly, and returns `status: injected` with the token on success.
+
+<details>
+<summary><b>Enable the solver</b></summary>
+<br>
+
+Set these env vars (see [CAPTCHA_SOLVER.md](./docs/CAPTCHA_SOLVER.md) for the full list):
+
+```bash
+# Master opt-in + provider
+CAPTCHA_SOLVER_ENABLED=true
+CAPTCHA_SOLVER_PROVIDER=2captcha          # 2captcha | capsolver | anti-captcha | capmonster
+CAPTCHA_SOLVER_API_KEY=your-key
+CAPTCHA_SOLVER_ALLOWED_ORIGINS=https://app.example.com   # exact origins, comma-separated
+
+# Optional: dry-run mode (detect only, no provider calls, zero cost)
+# CAPTCHA_SOLVER_MODE=detect-only
+
+# Optional: image/puzzle pipeline (separate gate — page pixels are sent to the provider)
+# CAPTCHA_SOLVER_IMAGE_ENABLED=true
+```
+
+</details>
+
+<details>
+<summary><b>Detect CAPTCHAs on a page</b></summary>
+<br>
+
+```bash
+# Inspect the live session page for CAPTCHAs (no cost, no provider call)
+curl -X POST http://localhost:3000/v1/captcha/detect \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://app.example.com/login",
+    "sessionId": "<session-id>"
+  }'
+```
+
+Returns the widgets found (`type`, `sitekey`, `selector`) or `widget_not_detected` if none.
+
+</details>
+
+<details open>
+<summary><b>Solve a CAPTCHA</b></summary>
+<br>
+
+```bash
+# Detect + solve + inject the token into the page (auto-detects the first widget)
+curl -X POST http://localhost:3000/v1/captcha/solve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://app.example.com/login",
+    "sessionId": "<session-id>"
+  }'
+```
+
+Returns `status: injected` with the solved `token` and `providerTaskId`, or an error status (`disabled`, `origin_not_allowed`, `detect_only`, `solver_error`, `image_capture_failed`). API keys are never returned in responses.
+
+</details>
+
+**Only list origins you are authorized to automate.** Solving a CAPTCHA on a site you haven't been authorized for may violate that site's terms or applicable law. A `detect-only` mode is available for safe inspection without spending money. See [CAPTCHA_SOLVER.md](./docs/CAPTCHA_SOLVER.md) for the authorization model, configuration, per-provider support matrix, and the provider-extension escape hatch.
 
 ## Get involved
 Steel browser is an open-source project, and we welcome contributions!
