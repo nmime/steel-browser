@@ -37,6 +37,21 @@ const browserWebSocket: FastifyPluginAsync<BrowserSocketOptions> = async (
   fastify.decorate("webSocketRegistry", registry);
 
   fastify.server.on("upgrade", async (request, socket, head) => {
+    if (fastify.authenticateWebSocket && !(await fastify.authenticateWebSocket(request, socket))) {
+      return;
+    }
+
+    if (fastify.schedulerService) {
+      try {
+        const routed = await fastify.schedulerService.proxyWebSocket(request, socket, head);
+        if (routed) return;
+      } catch (err) {
+        fastify.log.error({ err }, "Scheduler WebSocket routing error");
+        socket.destroy();
+        return;
+      }
+    }
+
     fastify.log.info("Upgrading browser socket...");
     const url = request.url ?? "";
     const params = Object.fromEntries(

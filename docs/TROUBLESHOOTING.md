@@ -143,6 +143,13 @@ htop          # system monitor
 # Set proxy configuration
 export PROXY_URL="http://proxy.company.com:8080"
 export PROXY_URL="http://username:password@proxy.company.com:8080"
+# Or keep credentials separate from the URL. These are applied only when the URL
+# does not already include credentials.
+export PROXY_USERNAME="username"
+export PROXY_PASSWORD="password"
+
+# Optional comma-separated internal hosts that should bypass the upstream proxy.
+export PROXY_BYPASS="0.0.0.0,localhost,127.0.0.1"
 
 # Disable SSL verification (development only)
 export NODE_TLS_REJECT_UNAUTHORIZED=0
@@ -535,4 +542,4 @@ echo $NO_PROXY
 
 ---
 
-Still having issues? Don't hesitate to reach out to our community for help! 🤝 
+Still having issues? Don't hesitate to reach out to our community for help! 🤝

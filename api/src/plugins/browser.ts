@@ -69,6 +69,13 @@ const browserInstancePlugin: FastifyPluginAsync = async (fastify, _options) => {
   );
 
   fastify.addHook("onListen", async function () {
+    if (env.STEEL_ROLE === "worker" && !env.WORKER_IDLE_BROWSER) {
+      this.log.info(
+        "Skipping idle browser launch for worker role because WORKER_IDLE_BROWSER=false",
+      );
+      return;
+    }
+
     this.log.info("Launching default browser...");
     await cdpService.launch();
   });

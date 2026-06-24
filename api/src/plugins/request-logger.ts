@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from "fastify";
 import fp from "fastify-plugin";
+import { redactUrl } from "../utils/redaction.js";
 
 declare module "fastify" {
   interface FastifyReply {
@@ -29,7 +30,7 @@ const logger: FastifyPluginAsync = async (fastify) => {
       req.log.info(
         {
           ip: getClientIp(req),
-          url: req.raw.url,
+          url: req.raw.url ? redactUrl(req.raw.url) : req.raw.url,
           method: req.method,
           statusCode: reply.raw.statusCode,
           durationMs: roundMS(now() - reply.startTime),

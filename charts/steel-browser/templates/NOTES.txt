@@ -1,0 +1,11 @@
+Steel Browser has been rendered for release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+
+Scheduler API Service:
+  {{ include "steel-browser.componentFullname" (dict "root" . "component" "scheduler") }}:{{ .Values.service.port }}
+
+Gateway API exposure is {{ ternary "enabled" "disabled" .Values.gateway.enabled }}.
+CDP service port is {{ ternary "enabled (internal only)" "disabled" .Values.cdp.enabled }}.
+
+Quick private check after install:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "steel-browser.componentFullname" (dict "root" . "component" "scheduler") }} 3000:{{ .Values.service.port }}
+  curl http://127.0.0.1:3000/v1/health

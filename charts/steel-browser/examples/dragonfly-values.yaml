@@ -1,0 +1,21 @@
+# Dragonfly values for Redis-compatible queues/cache in downstream scheduler builds.
+extraEnv:
+  - name: DRAGONFLY_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: dragonfly-auth
+        key: password
+  - name: REDIS_URL
+    value: redis://:$(DRAGONFLY_PASSWORD)@dragonfly.dragonfly.svc.cluster.local:6379/0
+networkPolicy:
+  enabled: true
+  egress:
+    enabled: true
+    extraRules:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: dragonfly
+        ports:
+          - protocol: TCP
+            port: 6379

@@ -1,0 +1,111 @@
+---
+- name: Install Steel Browser Helm release
+  when: steel_browser_enabled | bool
+  block:
+    - name: Build managed Steel Browser environment entries
+      ansible.builtin.set_fact:
+        steel_browser_managed_extra_env: >-
+          {{
+            (steel_browser_extra_env | default([]))
+            + ([
+                {'name': 'DRAGONFLY_PASSWORD', 'valueFrom': {'secretKeyRef': {'name': steel_browser_dragonfly_secret_name, 'key': steel_browser_dragonfly_secret_key}}},
+                {'name': 'REDIS_URL', 'value': steel_browser_dragonfly_url}
+              ] if (steel_browser_dragonfly_enabled | bool) else [])
+            + ([
+                {'name': 'STEEL_VAULT_MASTER_KEY', 'valueFrom': {'secretKeyRef': {'name': steel_browser_vault_secret_name, 'key': steel_browser_vault_secret_key}}},
+                {'name': 'STEEL_VAULT_STORE_PATH', 'value': steel_browser_vault_store_path},
+                {'name': 'STEEL_PROFILES_STORE_PATH', 'value': steel_browser_profiles_store_path}
+              ] if (steel_browser_vault_enabled | bool) else [])
+          }}
+
+    - name: Render Steel Browser Helm values
+      ansible.builtin.set_fact:
+        steel_browser_effective_values: >-
+          {{ (lookup('template', 'values.yaml.j2') | from_yaml)
+             | combine(steel_browser_values_override | default({}), recursive=True) }}
+
+    - name: Create Steel Browser namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ steel_browser_namespace }}"
+            labels:
+              app.kubernetes.io/name: steel-browser
+              app.kubernetes.io/part-of: steel-browser
+
+    - name: Validate object storage credentials when role creates the Secret
+      ansible.builtin.assert:
+        that:
+          - steel_browser_object_storage_access_key_id | length > 0
+          - steel_browser_object_storage_secret_access_key | length > 0
+        fail_msg: >-
+          steel_browser_object_storage_create_secret=true requires
+          steel_browser_object_storage_access_key_id and
+          steel_browser_object_storage_secret_access_key.
+      when:
+        - steel_browser_object_storage_enabled | bool
+        - steel_browser_object_storage_create_secret | bool
+
+    - name: Create Steel Browser object storage Secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ steel_browser_object_storage_secret_name }}"
+            namespace: "{{ steel_browser_namespace }}"
+            labels:
+              app.kubernetes.io/name: steel-browser
+              app.kubernetes.io/component: object-storage
+          type: Opaque
+          stringData:
+            "{{ steel_browser_object_storage_access_key_id_key }}": "{{ steel_browser_object_storage_access_key_id }}"
+            "{{ steel_browser_object_storage_secret_access_key_key }}": "{{ steel_browser_object_storage_secret_access_key }}"
+      no_log: true
+      when:
+        - steel_browser_object_storage_enabled | bool
+        - steel_browser_object_storage_create_secret | bool
+
+    - name: Validate vault master key when role creates the Secret
+      ansible.builtin.assert:
+        that:
+          - steel_browser_vault_master_key | length > 0
+        fail_msg: steel_browser_vault_create_secret=true requires steel_browser_vault_master_key.
+      when:
+        - steel_browser_vault_enabled | bool
+        - steel_browser_vault_create_secret | bool
+
+    - name: Create Steel Browser vault Secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ steel_browser_vault_secret_name }}"
+            namespace: "{{ steel_browser_namespace }}"
+            labels:
+              app.kubernetes.io/name: steel-browser
+              app.kubernetes.io/component: vault
+          type: Opaque
+          stringData:
+            "{{ steel_browser_vault_secret_key }}": "{{ steel_browser_vault_master_key }}"
+      no_log: true
+      when:
+        - steel_browser_vault_enabled | bool
+        - steel_browser_vault_create_secret | bool
+
+    - name: Install or upgrade Steel Browser Helm chart
+      kubernetes.core.helm:
+        name: "{{ steel_browser_release_name }}"
+        chart_ref: "{{ steel_browser_chart_ref }}"
+        release_namespace: "{{ steel_browser_namespace }}"
+        create_namespace: true
+        release_state: present
+        wait: "{{ steel_browser_wait | bool }}"
+        timeout: "{{ steel_browser_timeout }}"
+        values: "{{ steel_browser_effective_values }}"

@@ -1,0 +1,71 @@
+{{- if .Values.networkPolicy.enabled -}}
+{{- $root := . -}}
+{{- range $componentName, $component := .Values.components }}
+{{- if $component.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "steel-browser.componentFullname" (dict "root" $root "component" $componentName) }}
+  labels:
+    {{- include "steel-browser.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ kebabcase $componentName | quote }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "steel-browser.componentSelectorLabels" (dict "root" $root "component" $componentName) | nindent 6 }}
+  policyTypes:
+    - Ingress
+    {{- if $root.Values.networkPolicy.egress.enabled }}
+    - Egress
+    {{- end }}
+  ingress:
+    # Allow same-release components to communicate privately.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "steel-browser.name" $root }}
+              app.kubernetes.io/instance: {{ $root.Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ $root.Values.service.port }}
+        {{- if $root.Values.cdp.enabled }}
+        - protocol: TCP
+          port: {{ $root.Values.cdp.port }}
+        {{- end }}
+    {{- if and (eq $componentName "scheduler") $root.Values.gateway.enabled }}
+    # Public Gateway is allowed to reach only the scheduler/API Service port.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $root.Values.networkPolicy.gatewayNamespace | quote }}
+          {{- with $root.Values.networkPolicy.gatewayPodSelector }}
+          podSelector:
+            matchLabels:
+              {{- toYaml . | nindent 14 }}
+          {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ $root.Values.service.port }}
+    {{- end }}
+    {{- with $root.Values.networkPolicy.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- if $root.Values.networkPolicy.egress.enabled }}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- with $root.Values.networkPolicy.egress.extraRules }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

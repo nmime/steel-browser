@@ -1,0 +1,71 @@
+# Combined ansible-k8s-full-setup example: Gateway, Hetzner CSI, SeaweedFS, Dragonfly, Vault, and KEDA.
+image:
+  repository: ghcr.io/steel-dev/steel-browser
+  tag: latest
+components:
+  scheduler:
+    replicas: 1
+  controlPlane:
+    replicas: 1
+  worker:
+    replicas: 1
+gateway:
+  enabled: true
+  parentRefs:
+    - name: main-gateway
+      namespace: cilium-system
+      sectionName: https
+  hostnames:
+    - steel.example.com
+persistence:
+  logs:
+    enabled: true
+    storageClass: hcloud-volumes
+    size: 10Gi
+  exports:
+    enabled: true
+    storageClass: hcloud-volumes
+    size: 10Gi
+logStorage:
+  enabled: true
+  path: /data/logs/browser-logs.duckdb
+objectStorage:
+  enabled: true
+  endpoint: http://seaweedfs-filer.storage.svc.cluster.local:8333
+  bucket: steel-browser
+  region: us-east-1
+  forcePathStyle: true
+  existingSecret: steel-browser-object-storage
+extraEnv:
+  - name: DRAGONFLY_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: dragonfly-auth
+        key: password
+  - name: REDIS_URL
+    value: redis://:$(DRAGONFLY_PASSWORD)@dragonfly.dragonfly.svc.cluster.local:6379/0
+  - name: STEEL_VAULT_MASTER_KEY
+    valueFrom:
+      secretKeyRef:
+        name: steel-browser-vault
+        key: STEEL_VAULT_MASTER_KEY
+  - name: STEEL_VAULT_STORE_PATH
+    value: /data/logs/steel-vault.json
+  - name: STEEL_PROFILES_STORE_PATH
+    value: /data/logs/steel-profiles.json
+networkPolicy:
+  enabled: true
+  gatewayNamespace: cilium-system
+hpa:
+  enabled: false
+keda:
+  enabled: true
+  minReplicaCount: 1
+  maxReplicaCount: 3
+  triggers:
+    - type: cron
+      metadata:
+        timezone: UTC
+        start: "0 8 * * *"
+        end: "0 20 * * *"
+        desiredReplicas: "2"

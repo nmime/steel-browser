@@ -34,8 +34,9 @@ export const handleScrape = async (
   let context: BrowserContext | null = null;
 
   try {
-    if (proxyUrl) {
-      proxy = await sessionService.proxyFactory(proxyUrl);
+    const resolvedProxyUrl = sessionService.resolveProxyUrl(proxyUrl);
+    if (resolvedProxyUrl) {
+      proxy = await sessionService.proxyFactory(resolvedProxyUrl);
       await proxy.listen();
     }
     times.proxyTime = Date.now() - startTime;
@@ -351,8 +352,9 @@ export const handleSearch = async (
   let context: BrowserContext | null = null;
 
   try {
-    if (proxyUrl) {
-      proxy = await sessionService.proxyFactory(proxyUrl);
+    const resolvedProxyUrl = sessionService.resolveProxyUrl(proxyUrl);
+    if (resolvedProxyUrl) {
+      proxy = await sessionService.proxyFactory(resolvedProxyUrl);
       await proxy.listen();
     }
     times.proxyTime = Date.now() - startTime;
@@ -468,8 +470,9 @@ export const handleScreenshot = async (
   }
 
   try {
-    if (proxyUrl) {
-      proxy = await sessionService.proxyFactory(proxyUrl);
+    const resolvedProxyUrl = sessionService.resolveProxyUrl(proxyUrl);
+    if (resolvedProxyUrl) {
+      proxy = await sessionService.proxyFactory(resolvedProxyUrl);
       await proxy.listen();
     }
 
@@ -548,8 +551,9 @@ export const handlePDF = async (
   }
 
   try {
-    if (proxyUrl) {
-      proxy = await sessionService.proxyFactory(proxyUrl);
+    const resolvedProxyUrl = sessionService.resolveProxyUrl(proxyUrl);
+    if (resolvedProxyUrl) {
+      proxy = await sessionService.proxyFactory(resolvedProxyUrl);
       await proxy.listen();
     }
 

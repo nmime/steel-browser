@@ -9,6 +9,8 @@ Welcome to the Steel Browser documentation! This directory contains comprehensiv
 - **[Development Setup Guide](DEVELOPMENT_SETUP.md)** - Complete setup instructions for development environment
 - **[Contributing Guide](../CONTRIBUTING.md)** - How to contribute to the project
 - **[Troubleshooting Guide](TROUBLESHOOTING.md)** - Common issues and solutions
+- **[Kubernetes Deployment Notes](KUBERNETES.md)** - Kubernetes proxy secret examples
+- **[Extensions and Telemetry Foundation](EXTENSIONS_TELEMETRY.md)** - Extension registry and trace/replay artifact skeletons
 
 ### Architecture & Design
 
@@ -50,6 +52,7 @@ docs/
 ├── README.md                  # This file - documentation overview
 ├── ARCHITECTURE.md           # System architecture and design
 ├── DEVELOPMENT_SETUP.md      # Development environment setup
+├── KUBERNETES.md             # Kubernetes deployment notes and secret examples
 ├── PLUGIN_DEVELOPMENT.md     # Plugin creation guide
 └── TROUBLESHOOTING.md        # Common issues and solutions
 ```
@@ -160,4 +163,4 @@ Our documentation aims to be:
 
 **Happy learning and building with Steel Browser!** 🚀
 
-*Last updated: [Current Date] - If you notice outdated information, please let us know!* 
+*Last updated: [Current Date] - If you notice outdated information, please let us know!*

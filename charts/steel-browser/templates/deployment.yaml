@@ -1,0 +1,222 @@
+{{- $root := . -}}
+{{- range $componentName, $component := .Values.components }}
+{{- if $component.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "steel-browser.componentFullname" (dict "root" $root "component" $componentName) }}
+  labels:
+    {{- include "steel-browser.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ kebabcase $componentName | quote }}
+spec:
+  {{- if not $root.Values.hpa.enabled }}
+  replicas: {{ default 1 $component.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "steel-browser.componentSelectorLabels" (dict "root" $root "component" $componentName) | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "steel-browser.componentSelectorLabels" (dict "root" $root "component" $componentName) | nindent 8 }}
+        app.kubernetes.io/part-of: steel-browser
+        {{- with $root.Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/values: {{ toJson $root.Values | sha256sum }}
+        {{- with $root.Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "steel-browser.serviceAccountName" $root }}
+      automountServiceAccountToken: {{ $root.Values.serviceAccount.automount }}
+      terminationGracePeriodSeconds: {{ $root.Values.terminationGracePeriodSeconds }}
+      {{- with $root.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with $root.Values.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: steel-browser
+          image: {{ include "steel-browser.image" $root | quote }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          {{- with $root.Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ $root.Values.service.port }}
+              protocol: TCP
+            {{- if $root.Values.cdp.enabled }}
+            - name: cdp
+              containerPort: {{ $root.Values.cdp.port }}
+              protocol: TCP
+            {{- end }}
+          env:
+            {{- range $key, $value := $root.Values.commonEnv }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: STEEL_COMPONENT_ROLE
+              value: {{ $componentName | quote }}
+            - name: STEEL_CONTROL_PLANE_ENABLED
+              value: {{ include "steel-browser.bool" (eq $componentName "controlPlane") | quote }}
+            - name: STEEL_WORKER_ENABLED
+              value: {{ include "steel-browser.bool" (eq $componentName "worker") | quote }}
+            - name: STEEL_AUTH_ENABLED
+              value: "false"
+            - name: STEEL_REMOTE_STORAGE_ENABLED
+              value: {{ include "steel-browser.bool" $root.Values.objectStorage.enabled | quote }}
+            - name: STEEL_CHALLENGE_DETECTION_ENABLED
+              value: "false"
+            - name: STEEL_PROXY_MANAGEMENT_ENABLED
+              value: "false"
+            - name: LOG_STORAGE_ENABLED
+              value: {{ include "steel-browser.bool" $root.Values.logStorage.enabled | quote }}
+            - name: LOG_STORAGE_PATH
+              value: {{ $root.Values.logStorage.path | quote }}
+            - name: CDP_REDIRECT_PORT
+              value: {{ $root.Values.cdp.port | quote }}
+            {{- if $root.Values.cdp.domain }}
+            - name: CDP_DOMAIN
+              value: {{ $root.Values.cdp.domain | quote }}
+            {{- end }}
+            {{- if $root.Values.objectStorage.enabled }}
+            - name: S3_ENDPOINT
+              value: {{ $root.Values.objectStorage.endpoint | quote }}
+            - name: S3_BUCKET
+              value: {{ $root.Values.objectStorage.bucket | quote }}
+            - name: S3_REGION
+              value: {{ $root.Values.objectStorage.region | quote }}
+            - name: AWS_REGION
+              value: {{ $root.Values.objectStorage.region | quote }}
+            - name: S3_FORCE_PATH_STYLE
+              value: {{ $root.Values.objectStorage.forcePathStyle | quote }}
+            {{- if $root.Values.objectStorage.existingSecret }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.objectStorage.existingSecret | quote }}
+                  key: {{ $root.Values.objectStorage.accessKeyIdKey | quote }}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.objectStorage.existingSecret | quote }}
+                  key: {{ $root.Values.objectStorage.secretAccessKeyKey | quote }}
+            {{- end }}
+            {{- end }}
+            {{- with $root.Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- with $component.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with $root.Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if $root.Values.probes.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ $root.Values.probes.readiness.path | quote }}
+              port: http
+            initialDelaySeconds: {{ $root.Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ $root.Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ $root.Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ $root.Values.probes.readiness.failureThreshold }}
+          {{- end }}
+          {{- if $root.Values.probes.liveness.enabled }}
+          livenessProbe:
+            {{- if $root.Values.probes.liveness.tcpSocket }}
+            tcpSocket:
+              port: http
+            {{- else }}
+            httpGet:
+              path: {{ default "/v1/health" $root.Values.probes.liveness.path | quote }}
+              port: http
+            {{- end }}
+            initialDelaySeconds: {{ $root.Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ $root.Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ $root.Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ $root.Values.probes.liveness.failureThreshold }}
+          {{- end }}
+          {{- if $root.Values.probes.startup.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ $root.Values.probes.startup.path | quote }}
+              port: http
+            periodSeconds: {{ $root.Values.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ $root.Values.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ $root.Values.probes.startup.failureThreshold }}
+          {{- end }}
+          volumeMounts:
+            - name: logs
+              mountPath: {{ $root.Values.persistence.logs.mountPath | quote }}
+            - name: exports
+              mountPath: {{ $root.Values.persistence.exports.mountPath | quote }}
+            - name: cache
+              mountPath: {{ $root.Values.persistence.cache.mountPath | quote }}
+          resources:
+            {{- toYaml (default $root.Values.resources $component.resources) | nindent 12 }}
+      volumes:
+        - name: logs
+          {{- if $root.Values.persistence.logs.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "steel-browser.storageClaimName" (dict "root" $root "name" "logs") }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: exports
+          {{- if $root.Values.persistence.exports.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "steel-browser.storageClaimName" (dict "root" $root "name" "exports") }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: cache
+          {{- if $root.Values.persistence.cache.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "steel-browser.storageClaimName" (dict "root" $root "name" "cache") }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with $component.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $component.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $component.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $component.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- end }}

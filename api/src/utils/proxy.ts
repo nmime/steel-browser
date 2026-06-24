@@ -1,6 +1,7 @@
 import { env } from "../env.js";
 import { SessionService } from "../services/session.service.js";
 import { makePassthrough, PassthroughServer } from "./passthough-proxy.js";
+import { normalizeProxyUrl } from "./proxy-url.js";
 import { Server } from "proxy-chain";
 
 export interface IProxyServer {
@@ -20,6 +21,8 @@ export class ProxyServer extends Server implements IProxyServer {
   private hostConnections = new Set<number>();
 
   constructor(proxyUrl: string) {
+    const normalizedProxyUrl = normalizeProxyUrl(proxyUrl);
+
     super({
       port: 0,
 
@@ -28,8 +31,9 @@ export class ProxyServer extends Server implements IProxyServer {
 
         const internalBypassTests = new Set(["0.0.0.0", process.env.HOST]);
 
-        if (env.PROXY_INTERNAL_BYPASS) {
-          for (const host of env.PROXY_INTERNAL_BYPASS.split(",")) {
+        const proxyBypass = env.PROXY_BYPASS || env.PROXY_INTERNAL_BYPASS;
+        if (proxyBypass) {
+          for (const host of proxyBypass.split(",")) {
             internalBypassTests.add(host.trim());
           }
         }
@@ -45,7 +49,7 @@ export class ProxyServer extends Server implements IProxyServer {
         }
         return {
           requestAuthentication: false,
-          upstreamProxyUrl: proxyUrl,
+          upstreamProxyUrl: normalizedProxyUrl,
         };
       },
     });
@@ -59,7 +63,7 @@ export class ProxyServer extends Server implements IProxyServer {
     });
 
     this.url = `http://127.0.0.1:${this.port}`;
-    this.upstreamProxyUrl = proxyUrl;
+    this.upstreamProxyUrl = normalizedProxyUrl;
   }
 
   async listen(): Promise<void> {

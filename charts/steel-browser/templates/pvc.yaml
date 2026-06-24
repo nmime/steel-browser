@@ -1,0 +1,23 @@
+{{- $root := . -}}
+{{- range $name, $cfg := .Values.persistence }}
+{{- if and $cfg.enabled (not $cfg.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "steel-browser.storageClaimName" (dict "root" $root "name" $name) }}
+  labels:
+    {{- include "steel-browser.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: storage
+    steel-browser.dev/storage: {{ $name | quote }}
+spec:
+  accessModes:
+    {{- toYaml $cfg.accessModes | nindent 4 }}
+  {{- if $cfg.storageClass }}
+  storageClassName: {{ $cfg.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $cfg.size | quote }}
+{{- end }}
+{{- end }}

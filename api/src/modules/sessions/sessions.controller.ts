@@ -4,6 +4,10 @@ import { getErrors } from "../../utils/errors.js";
 import { CreateSessionRequest, SessionDetails, SessionStreamRequest } from "./sessions.schema.js";
 import { CookieData } from "../../services/context/types.js";
 import { getUrl, getBaseUrl } from "../../utils/url.js";
+import {
+  WorkerCapacityExceededError,
+  WorkerDrainingError,
+} from "../../services/workers/worker-runtime.service.js";
 
 export const handleLaunchBrowserSession = async (
   server: FastifyInstance,
@@ -14,8 +18,12 @@ export const handleLaunchBrowserSession = async (
     const {
       sessionId,
       proxyUrl,
+      proxyPoolId,
+      proxyLeaseId,
       userDataDir,
       persist,
+      profileId,
+      profileVersion,
       userAgent,
       sessionContext,
       extensions,
@@ -36,8 +44,12 @@ export const handleLaunchBrowserSession = async (
     return await server.sessionService.startSession({
       sessionId,
       proxyUrl,
+      proxyPoolId,
+      proxyLeaseId,
       userDataDir,
       persist,
+      profileId,
+      profileVersion,
       userAgent,
       sessionContext: sessionContext as {
         cookies?: CookieData[] | undefined;
@@ -60,7 +72,11 @@ export const handleLaunchBrowserSession = async (
   } catch (e: unknown) {
     server.log.error({ err: e }, "Failed lauching browser session");
     const error = getErrors(e);
-    return reply.code(500).send({ success: false, message: error });
+    if (e instanceof WorkerCapacityExceededError || e instanceof WorkerDrainingError) {
+      return reply.code(409).send({ success: false, message: error });
+    }
+    const statusCode = typeof (e as any)?.statusCode === "number" ? (e as any).statusCode : 500;
+    return reply.code(statusCode).send({ success: false, message: error });
   }
 };
 
@@ -116,7 +132,7 @@ export const handleGetSessionDetails = async (
     } as SessionDetails);
   }
 
-  const session = server.sessionService.activeSession;
+  const session = server.sessionService.getActiveSessionDetails();
   const duration = new Date().getTime() - new Date(session.createdAt).getTime();
   console.log("duration", duration);
   return reply.send({
@@ -131,11 +147,11 @@ export const handleGetSessions = async (
   reply: FastifyReply,
 ) => {
   const currentSession = {
-    ...server.sessionService.activeSession,
+    ...server.sessionService.getActiveSessionDetails(),
     duration:
       new Date().getTime() - new Date(server.sessionService.activeSession.createdAt).getTime(),
   };
-  const pastSessions = server.sessionService.pastSessions;
+  const pastSessions = server.sessionService.getPastSessionDetails();
   return reply.send({ sessions: [currentSession, ...pastSessions] });
 };
 

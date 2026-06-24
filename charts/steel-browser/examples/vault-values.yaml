@@ -1,0 +1,19 @@
+# Steel vault/profile-store values. The master key must decode to exactly 32 bytes.
+extraEnv:
+  - name: STEEL_VAULT_MASTER_KEY
+    valueFrom:
+      secretKeyRef:
+        name: steel-browser-vault
+        key: STEEL_VAULT_MASTER_KEY
+  - name: STEEL_VAULT_STORE_PATH
+    value: /data/logs/steel-vault.json
+  - name: STEEL_PROFILES_STORE_PATH
+    value: /data/logs/steel-profiles.json
+persistence:
+  logs:
+    enabled: true
+    storageClass: hcloud-volumes
+    size: 10Gi
+logStorage:
+  enabled: true
+  path: /data/logs/browser-logs.duckdb

@@ -1,0 +1,106 @@
+image:
+  repository: {{ steel_browser_image_repository | to_json }}
+  tag: {{ steel_browser_image_tag | to_json }}
+  digest: {{ steel_browser_image_digest | to_json }}
+  pullPolicy: {{ steel_browser_image_pull_policy | to_json }}
+
+components:
+  scheduler:
+    enabled: true
+    replicas: {{ steel_browser_scheduler_replicas | int }}
+    resources: {{ (steel_browser_scheduler_resources if steel_browser_scheduler_resources else steel_browser_resources) | to_json }}
+    nodeSelector: {{ steel_browser_node_selector | to_json }}
+    tolerations: {{ steel_browser_tolerations | to_json }}
+    affinity: {{ steel_browser_affinity | to_json }}
+  controlPlane:
+    enabled: true
+    replicas: {{ steel_browser_control_plane_replicas | int }}
+    resources: {{ (steel_browser_control_plane_resources if steel_browser_control_plane_resources else steel_browser_resources) | to_json }}
+    nodeSelector: {{ steel_browser_node_selector | to_json }}
+    tolerations: {{ steel_browser_tolerations | to_json }}
+    affinity: {{ steel_browser_affinity | to_json }}
+  worker:
+    enabled: true
+    replicas: {{ steel_browser_worker_replicas | int }}
+    resources: {{ (steel_browser_worker_resources if steel_browser_worker_resources else steel_browser_resources) | to_json }}
+    nodeSelector: {{ steel_browser_node_selector | to_json }}
+    tolerations: {{ steel_browser_tolerations | to_json }}
+    affinity: {{ steel_browser_affinity | to_json }}
+
+commonEnv: {{ ({'STEEL_DEFAULT_TENANT_ID': 'default'} | combine(steel_browser_common_env | default({}), recursive=True)) | to_json }}
+extraEnv: {{ steel_browser_managed_extra_env | default([]) | to_json }}
+extraEnvFrom: {{ steel_browser_extra_env_from | default([]) | to_json }}
+
+service:
+  type: ClusterIP
+  port: 3000
+
+gateway:
+  enabled: {{ steel_browser_gateway_enabled | bool | to_json }}
+  annotations: {{ steel_browser_gateway_annotations | to_json }}
+  parentRefs:
+    - name: {{ steel_browser_gateway_name | to_json }}
+      namespace: {{ steel_browser_gateway_namespace | to_json }}
+      sectionName: {{ steel_browser_gateway_section_name | to_json }}
+  hostnames: {{ steel_browser_gateway_hostnames | to_json }}
+  pathPrefix: {{ steel_browser_gateway_path_prefix | to_json }}
+
+persistence:
+  logs:
+    enabled: {{ steel_browser_logs_persistence_enabled | bool | to_json }}
+    storageClass: {{ steel_browser_storage_class | to_json }}
+    size: {{ steel_browser_logs_size | to_json }}
+  exports:
+    enabled: {{ steel_browser_exports_persistence_enabled | bool | to_json }}
+    storageClass: {{ steel_browser_storage_class | to_json }}
+    size: {{ steel_browser_exports_size | to_json }}
+  cache:
+    enabled: {{ steel_browser_cache_persistence_enabled | bool | to_json }}
+    storageClass: {{ steel_browser_storage_class | to_json }}
+    size: {{ steel_browser_cache_size | to_json }}
+
+logStorage:
+  enabled: {{ steel_browser_log_storage_enabled | bool | to_json }}
+  path: {{ steel_browser_log_storage_path | to_json }}
+
+objectStorage:
+  enabled: {{ steel_browser_object_storage_enabled | bool | to_json }}
+  endpoint: {{ steel_browser_object_storage_endpoint | to_json }}
+  bucket: {{ steel_browser_object_storage_bucket | to_json }}
+  region: {{ steel_browser_object_storage_region | to_json }}
+  forcePathStyle: {{ steel_browser_object_storage_force_path_style | bool | to_json }}
+  existingSecret: {{ (steel_browser_object_storage_secret_name if steel_browser_object_storage_enabled else '') | to_json }}
+  accessKeyIdKey: {{ steel_browser_object_storage_access_key_id_key | to_json }}
+  secretAccessKeyKey: {{ steel_browser_object_storage_secret_access_key_key | to_json }}
+
+cdp:
+  enabled: {{ steel_browser_cdp_enabled | bool | to_json }}
+  port: {{ steel_browser_cdp_port | int }}
+  domain: {{ steel_browser_cdp_domain | to_json }}
+
+networkPolicy:
+  enabled: {{ steel_browser_network_policy_enabled | bool | to_json }}
+  gatewayNamespace: {{ steel_browser_gateway_namespace | to_json }}
+  extraIngress: {{ steel_browser_network_policy_extra_ingress | to_json }}
+  egress:
+    enabled: {{ steel_browser_network_policy_egress_enabled | bool | to_json }}
+    extraRules: {{ steel_browser_network_policy_extra_egress | to_json }}
+
+hpa:
+  enabled: {{ steel_browser_hpa_enabled | bool | to_json }}
+  minReplicas: {{ steel_browser_hpa_min_replicas | int }}
+  maxReplicas: {{ steel_browser_hpa_max_replicas | int }}
+  targetCPUUtilizationPercentage: {{ steel_browser_hpa_target_cpu_utilization_percentage | to_json }}
+  targetMemoryUtilizationPercentage: {{ steel_browser_hpa_target_memory_utilization_percentage | to_json }}
+
+keda:
+  enabled: {{ steel_browser_keda_enabled | bool | to_json }}
+  pollingInterval: {{ steel_browser_keda_polling_interval | int }}
+  cooldownPeriod: {{ steel_browser_keda_cooldown_period | int }}
+  minReplicaCount: {{ steel_browser_keda_min_replica_count | int }}
+  maxReplicaCount: {{ steel_browser_keda_max_replica_count | int }}
+  triggers: {{ steel_browser_keda_triggers | to_json }}
+
+podDisruptionBudget:
+  enabled: {{ steel_browser_pdb_enabled | bool | to_json }}
+  minAvailable: {{ steel_browser_pdb_min_available | int }}

@@ -1,0 +1,24 @@
+{{- if and .Values.keda.enabled .Values.keda.triggers -}}
+{{- $root := . -}}
+{{- range $componentName, $component := .Values.components }}
+{{- if $component.enabled }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "steel-browser.componentFullname" (dict "root" $root "component" $componentName) }}
+  labels:
+    {{- include "steel-browser.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ kebabcase $componentName | quote }}
+spec:
+  scaleTargetRef:
+    name: {{ include "steel-browser.componentFullname" (dict "root" $root "component" $componentName) }}
+  pollingInterval: {{ $root.Values.keda.pollingInterval }}
+  cooldownPeriod: {{ $root.Values.keda.cooldownPeriod }}
+  minReplicaCount: {{ $root.Values.keda.minReplicaCount }}
+  maxReplicaCount: {{ $root.Values.keda.maxReplicaCount }}
+  triggers:
+    {{- toYaml $root.Values.keda.triggers | nindent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}

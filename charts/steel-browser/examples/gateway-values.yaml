@@ -1,0 +1,15 @@
+# Gateway API values for nmime/ansible-k8s-full-setup (Cilium Gateway).
+gateway:
+  enabled: true
+  parentRefs:
+    - name: main-gateway
+      namespace: cilium-system
+      sectionName: https
+  hostnames:
+    - steel.example.com
+  pathPrefix: /
+cdp:
+  enabled: false
+networkPolicy:
+  enabled: true
+  gatewayNamespace: cilium-system

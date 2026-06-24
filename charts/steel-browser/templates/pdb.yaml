@@ -1,0 +1,20 @@
+{{- if .Values.podDisruptionBudget.enabled -}}
+{{- $root := . -}}
+{{- range $componentName, $component := .Values.components }}
+{{- if $component.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "steel-browser.componentFullname" (dict "root" $root "component" $componentName) }}
+  labels:
+    {{- include "steel-browser.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ kebabcase $componentName | quote }}
+spec:
+  minAvailable: {{ $root.Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "steel-browser.componentSelectorLabels" (dict "root" $root "component" $componentName) | nindent 6 }}
+{{- end }}
+{{- end }}
+{{- end }}

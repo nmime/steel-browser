@@ -1,0 +1,103 @@
+---
+steel_browser_enabled: false
+steel_browser_namespace: steel
+steel_browser_release_name: steel
+steel_browser_chart_ref: "{{ playbook_dir }}/../steel-browser/charts/steel-browser"
+steel_browser_wait: true
+steel_browser_timeout: 10m0s
+steel_browser_values_override: {}
+
+steel_browser_image_repository: ghcr.io/steel-dev/steel-browser
+steel_browser_image_tag: latest
+steel_browser_image_digest: ""
+steel_browser_image_pull_policy: IfNotPresent
+
+steel_browser_base_domain: "steel.{{ domain | default('example.com') }}"
+steel_browser_gateway_enabled: true
+steel_browser_gateway_name: main-gateway
+steel_browser_gateway_namespace: cilium-system
+steel_browser_gateway_section_name: https
+steel_browser_gateway_path_prefix: /
+steel_browser_gateway_annotations: {}
+steel_browser_gateway_hostnames:
+  - "{{ steel_browser_base_domain }}"
+
+steel_browser_storage_class: "{{ storage_class | default('hcloud-volumes') }}"
+steel_browser_logs_persistence_enabled: true
+steel_browser_logs_size: 10Gi
+steel_browser_exports_persistence_enabled: true
+steel_browser_exports_size: 10Gi
+steel_browser_cache_persistence_enabled: false
+steel_browser_cache_size: 5Gi
+steel_browser_log_storage_enabled: true
+steel_browser_log_storage_path: /data/logs/browser-logs.duckdb
+
+steel_browser_scheduler_replicas: 1
+steel_browser_control_plane_replicas: 1
+steel_browser_worker_replicas: 1
+steel_browser_resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+steel_browser_scheduler_resources: {}
+steel_browser_control_plane_resources: {}
+steel_browser_worker_resources: {}
+steel_browser_node_selector: {}
+steel_browser_tolerations: []
+steel_browser_affinity: {}
+
+steel_browser_cdp_enabled: false
+steel_browser_cdp_port: 9223
+steel_browser_cdp_domain: ""
+
+steel_browser_network_policy_enabled: true
+steel_browser_network_policy_egress_enabled: false
+steel_browser_network_policy_extra_ingress: []
+steel_browser_network_policy_extra_egress: []
+
+steel_browser_object_storage_enabled: false
+steel_browser_object_storage_endpoint: "{{ object_storage_endpoint_resolved | default(object_storage_endpoint | default('http://seaweedfs-filer.storage.svc.cluster.local:8333')) }}"
+steel_browser_object_storage_bucket: steel-browser
+steel_browser_object_storage_region: us-east-1
+steel_browser_object_storage_force_path_style: true
+steel_browser_object_storage_secret_name: steel-browser-object-storage
+steel_browser_object_storage_access_key_id_key: accessKeyId
+steel_browser_object_storage_secret_access_key_key: secretAccessKey
+steel_browser_object_storage_create_secret: false
+steel_browser_object_storage_access_key_id: "{{ object_storage_access_key_resolved | default(object_storage_access_key | default('')) }}"
+steel_browser_object_storage_secret_access_key: "{{ object_storage_secret_key_resolved | default(object_storage_secret_key | default('')) }}"
+
+steel_browser_dragonfly_enabled: false
+steel_browser_dragonfly_secret_name: dragonfly-auth
+steel_browser_dragonfly_secret_key: password
+steel_browser_dragonfly_url: "redis://:$(DRAGONFLY_PASSWORD)@dragonfly.dragonfly.svc.cluster.local:6379/0"
+
+steel_browser_vault_enabled: false
+steel_browser_vault_secret_name: steel-browser-vault
+steel_browser_vault_secret_key: STEEL_VAULT_MASTER_KEY
+steel_browser_vault_create_secret: false
+steel_browser_vault_master_key: ""
+steel_browser_vault_store_path: /data/logs/steel-vault.json
+steel_browser_profiles_store_path: /data/logs/steel-profiles.json
+
+steel_browser_hpa_enabled: false
+steel_browser_hpa_min_replicas: 1
+steel_browser_hpa_max_replicas: 3
+steel_browser_hpa_target_cpu_utilization_percentage: 70
+steel_browser_hpa_target_memory_utilization_percentage: null
+
+steel_browser_keda_enabled: false
+steel_browser_keda_polling_interval: 30
+steel_browser_keda_cooldown_period: 300
+steel_browser_keda_min_replica_count: 1
+steel_browser_keda_max_replica_count: 3
+steel_browser_keda_triggers: []
+
+steel_browser_pdb_enabled: false
+steel_browser_pdb_min_available: 1
+steel_browser_extra_env: []
+steel_browser_extra_env_from: []
+steel_browser_common_env: {}

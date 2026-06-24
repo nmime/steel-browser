@@ -22,12 +22,30 @@ export const SessionCredentials = z
     exactOrigin: z.union([z.boolean(), z.never()]),
   })
   .partial()
+  .transform((value) => ({ ...value, autoSubmit: value.autoSubmit ?? false }))
   .optional()
-  .describe("Configuration for session credentials");
+  .describe(
+    "Configuration for session credentials. autoSubmit defaults to false when credentials are supplied.",
+  );
 
 const CreateSession = z.object({
   sessionId: z.string().uuid().optional().describe("Unique identifier for the session"),
-  proxyUrl: z.string().optional().describe("Proxy URL to use for the session"),
+  proxyUrl: z
+    .string()
+    .optional()
+    .describe(
+      "Proxy URL to use for the session. Preserves backward compatibility with proxyUrl; if omitted, PROXY_URL can provide a global fallback.",
+    ),
+  proxyPoolId: z
+    .string()
+    .uuid()
+    .optional()
+    .describe("Managed BYOP proxy pool to lease from for this session."),
+  proxyLeaseId: z
+    .string()
+    .uuid()
+    .optional()
+    .describe("Existing managed BYOP proxy lease to bind to this session."),
   userAgent: z.string().optional().describe("User agent string to use for the session"),
   sessionContext: SessionContextSchema.optional().describe(
     "Session context data to be used in the created session",
@@ -68,6 +86,13 @@ const CreateSession = z.object({
   extensions: z.array(z.string()).optional().describe("Extensions to use for the session"),
   persist: z.boolean().optional().describe("Flag to indicate if session should be persisted"),
   userDataDir: z.string().optional().describe("User data directory path to use for the session"),
+  profileId: z.string().uuid().optional().describe("Profile snapshot id to restore before launch"),
+  profileVersion: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe("Profile snapshot version to restore"),
   timezone: z.string().optional().describe("Timezone to use for the session"),
   dimensions: z
     .object({
@@ -110,7 +135,12 @@ const SessionDetails = z.object({
   debuggerUrl: z.string().describe("URL for debugging the session"),
   sessionViewerUrl: z.string().describe("URL to view session details"),
   userAgent: z.string().optional().describe("User agent string used in the session"),
-  proxy: z.string().optional().describe("Proxy server used for the session"),
+  proxy: z
+    .string()
+    .optional()
+    .describe("Proxy server used for the session, with credentials redacted"),
+  proxyPoolId: z.string().uuid().optional().describe("Managed BYOP proxy pool used."),
+  proxyLeaseId: z.string().uuid().optional().describe("Managed BYOP proxy lease used."),
   proxyTxBytes: z
     .number()
     .int()

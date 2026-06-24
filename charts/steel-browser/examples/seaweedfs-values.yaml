@@ -1,0 +1,22 @@
+# SeaweedFS S3-compatible object storage values for ansible-k8s-full-setup.
+objectStorage:
+  enabled: true
+  endpoint: http://seaweedfs-filer.storage.svc.cluster.local:8333
+  bucket: steel-browser
+  region: us-east-1
+  forcePathStyle: true
+  existingSecret: steel-browser-object-storage
+  accessKeyIdKey: accessKeyId
+  secretAccessKeyKey: secretAccessKey
+persistence:
+  logs:
+    enabled: true
+    storageClass: hcloud-volumes
+    size: 10Gi
+  exports:
+    enabled: true
+    storageClass: hcloud-volumes
+    size: 10Gi
+logStorage:
+  enabled: true
+  path: /data/logs/browser-logs.duckdb

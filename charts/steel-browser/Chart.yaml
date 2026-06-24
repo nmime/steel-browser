@@ -1,0 +1,20 @@
+apiVersion: v2
+name: steel-browser
+description: Helm chart for self-hosted Steel Browser with scheduler/API, control-plane, and private worker topology.
+type: application
+version: 0.1.0
+appVersion: "0.5.2"
+home: https://github.com/steel-dev/steel-browser
+sources:
+  - https://github.com/steel-dev/steel-browser
+keywords:
+  - browser
+  - cdp
+  - puppeteer
+  - self-hosted
+maintainers:
+  - name: Steel Browser maintainers
+annotations:
+  artifacthub.io/changes: |
+    - kind: added
+      description: Initial self-hosted Kubernetes topology chart.

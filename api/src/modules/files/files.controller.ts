@@ -17,6 +17,12 @@ import { getErrors } from "../../utils/errors.js";
 export class FilesController {
   constructor(private fileService: FileService) {}
 
+  private sendError(reply: FastifyReply, e: unknown) {
+    const error = getErrors(e);
+    const statusCode = typeof (e as any)?.statusCode === "number" ? (e as any).statusCode : 500;
+    return reply.code(statusCode).send({ success: false, message: error });
+  }
+
   private validatePath(filePath: string): boolean {
     if (path.isAbsolute(filePath)) {
       return false;
@@ -40,7 +46,7 @@ export class FilesController {
 
   async handleFileUpload(
     server: FastifyInstance,
-    request: FastifyRequest<{ Params: { sessionId: string } }>,
+    request: FastifyRequest<{ Params: { sessionId?: string } }>,
     reply: FastifyReply,
   ) {
     let tempFilePath: string | null = null;
@@ -106,6 +112,7 @@ export class FilesController {
 
         const readStream = fs.createReadStream(tempFilePath);
         saveFileResult = await this.fileService.saveFile({
+          sessionId: request.params.sessionId,
           filePath: finalPath,
           stream: readStream,
         });
@@ -130,6 +137,7 @@ export class FilesController {
 
         const { stream } = await this.createStreamFromUrl(fileUrl);
         saveFileResult = await this.fileService.saveFile({
+          sessionId: request.params.sessionId,
           filePath: finalPath,
           stream,
         });
@@ -151,8 +159,7 @@ export class FilesController {
       if (tempFilePath) {
         await fs.promises.unlink(tempFilePath).catch(() => {});
       }
-      const error = getErrors(e);
-      return reply.code(500).send({ success: false, message: error });
+      return this.sendError(reply, e);
     }
   }
 
@@ -192,11 +199,12 @@ export class FilesController {
 
   async handleFileDownload(
     server: FastifyInstance,
-    request: FastifyRequest<{ Params: { sessionId: string; "*": string } }>,
+    request: FastifyRequest<{ Params: { sessionId?: string; "*": string } }>,
     reply: FastifyReply,
   ) {
     try {
       const { stream, size, lastModified } = await this.fileService.downloadFile({
+        sessionId: request.params.sessionId,
         filePath: request.params["*"],
       });
 
@@ -210,40 +218,44 @@ export class FilesController {
 
       return reply.send(stream);
     } catch (e: unknown) {
-      const error = getErrors(e);
-      return reply.code(500).send({ success: false, message: error });
+      return this.sendError(reply, e);
     }
   }
 
   async handleFileHead(
     server: FastifyInstance,
-    request: FastifyRequest<{ Params: { sessionId: string; "*": string } }>,
+    request: FastifyRequest<{ Params: { sessionId?: string; "*": string } }>,
     reply: FastifyReply,
   ) {
-    const { size, lastModified } = await this.fileService.getFile({
-      filePath: request.params["*"],
-    });
+    try {
+      const { size, lastModified } = await this.fileService.getFile({
+        sessionId: request.params.sessionId,
+        filePath: request.params["*"],
+      });
 
-    const name = request.params["*"].split("/").pop() || "downloaded-file";
+      const name = request.params["*"].split("/").pop() || "downloaded-file";
 
-    reply
-      .header("Content-Length", size)
-      .header("Last-Modified", lastModified.toISOString())
-      .header("Content-Type", mime.lookup(request.params["*"]) || "application/octet-stream")
-      .header("Content-Disposition", `attachment; filename="${encodeURIComponent(name)}"`);
+      reply
+        .header("Content-Length", size)
+        .header("Last-Modified", lastModified.toISOString())
+        .header("Content-Type", mime.lookup(request.params["*"]) || "application/octet-stream")
+        .header("Content-Disposition", `attachment; filename="${encodeURIComponent(name)}"`);
 
-    return reply.code(200).send();
+      return reply.code(200).send();
+    } catch (e: unknown) {
+      return this.sendError(reply, e);
+    }
   }
 
   async handleFileList(
     server: FastifyInstance,
     request: FastifyRequest<{
-      Params: { sessionId: string };
+      Params: { sessionId?: string };
     }>,
     reply: FastifyReply,
   ) {
     try {
-      const files = await this.fileService.listFiles();
+      const files = await this.fileService.listFiles({ sessionId: request.params.sessionId });
 
       return reply.send({
         data: files.map((file) => ({
@@ -253,49 +265,79 @@ export class FilesController {
         })),
       });
     } catch (e: unknown) {
-      const error = getErrors(e);
-      return reply.code(500).send({ success: false, message: error });
+      return this.sendError(reply, e);
     }
   }
 
   async handleFileDelete(
     server: FastifyInstance,
-    request: FastifyRequest<{ Params: { sessionId: string; "*": string } }>,
+    request: FastifyRequest<{ Params: { sessionId?: string; "*": string } }>,
     reply: FastifyReply,
   ) {
     try {
       await this.fileService.deleteFile({
+        sessionId: request.params.sessionId,
         filePath: request.params["*"],
       });
       return reply.code(204).send();
     } catch (e: unknown) {
-      const error = getErrors(e);
-      return reply.code(500).send({ success: false, message: error });
+      return this.sendError(reply, e);
     }
   }
 
   async handleFileDeleteAll(
     server: FastifyInstance,
-    request: FastifyRequest<{ Params: { sessionId: string } }>,
+    request: FastifyRequest<{ Params: { sessionId?: string } }>,
     reply: FastifyReply,
   ) {
     try {
-      await this.fileService.cleanupFiles();
+      await this.fileService.cleanupFiles({ sessionId: request.params.sessionId });
       return reply.code(204).send();
     } catch (e: unknown) {
-      const error = getErrors(e);
-      return reply.code(500).send({ success: false, message: error });
+      return this.sendError(reply, e);
+    }
+  }
+
+  async handleCreateSignedUrl(
+    server: FastifyInstance,
+    request: FastifyRequest<{
+      Params: { sessionId?: string };
+      Body: {
+        path: string;
+        operation: "read" | "write";
+        expiresInSeconds?: number;
+        contentType?: string;
+      };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const signedUrl = await this.fileService.createSignedUrl({
+        sessionId: request.params.sessionId,
+        filePath: request.body.path,
+        operation: request.body.operation,
+        expiresInSeconds: request.body.expiresInSeconds,
+        contentType: request.body.contentType,
+      });
+
+      return reply.send({
+        ...signedUrl,
+        expiresAt: signedUrl.expiresAt.toISOString(),
+      });
+    } catch (e: unknown) {
+      return this.sendError(reply, e);
     }
   }
 
   async handleDownloadArchive(
     server: FastifyInstance,
-    request: FastifyRequest<{ Params: { sessionId: string } }>,
+    request: FastifyRequest<{ Params: { sessionId?: string } }>,
     reply: FastifyReply,
   ) {
-    const prebuiltArchivePath = await this.fileService.getPrebuiltArchivePath();
-
     try {
+      const prebuiltArchivePath = await this.fileService.getPrebuiltArchivePath({
+        sessionId: request.params.sessionId,
+      });
       const stats = await fs.promises.stat(prebuiltArchivePath);
       if (stats.isFile()) {
         server.log.info(`Serving prebuilt archive: ${prebuiltArchivePath}`);

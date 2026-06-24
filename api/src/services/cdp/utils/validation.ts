@@ -1,5 +1,6 @@
 import { FastifyBaseLogger } from "fastify";
 import { BrowserLauncherOptions } from "../../../types/index.js";
+import { redactProxyUrl } from "../../../utils/proxy-url.js";
 import { ConfigurationError, ConfigurationField } from "../errors/launch-errors.js";
 
 /**
@@ -53,9 +54,9 @@ export function validateLaunchConfig(config: BrowserLauncherOptions): void {
       new URL(config.options.proxyUrl);
     } catch {
       throw new ConfigurationError(
-        `Invalid proxy URL format: ${config.options.proxyUrl}`,
+        `Invalid proxy URL format: ${redactProxyUrl(config.options.proxyUrl)}`,
         ConfigurationField.PROXY_URL,
-        config.options.proxyUrl,
+        redactProxyUrl(config.options.proxyUrl),
       );
     }
   }

@@ -1358,6 +1358,11 @@ export class CDPService extends EventEmitter {
       await this.pluginManager.onAfterSessionEnd(sessionConfig);
     }
 
+    if (env.STEEL_ROLE === "worker" && !env.WORKER_IDLE_BROWSER) {
+      this.logger.info("Skipping idle browser relaunch for worker role");
+      return;
+    }
+
     // Relaunch the idle browser
     await this.launch(this.defaultLaunchConfig);
   }

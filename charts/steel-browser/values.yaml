@@ -1,0 +1,223 @@
+# Default values for the Steel Browser chart.
+# These defaults prioritize private networking and a single-replica footprint.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  # Combined API + UI image from the root Dockerfile. Use steel-browser-api if you only want the API image.
+  repository: ghcr.io/steel-dev/steel-browser
+  tag: latest
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  automount: false
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# Steel currently runs the same image for every topology role. The role flags below
+# are exposed so future scheduler/worker implementations can be wired without
+# changing Kubernetes object names or network boundaries.
+components:
+  scheduler:
+    enabled: true
+    replicas: 1
+    env: []
+    resources: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+  controlPlane:
+    enabled: true
+    replicas: 1
+    env: []
+    resources: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+  worker:
+    enabled: true
+    replicas: 1
+    env: []
+    resources: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+commonEnv:
+  NODE_ENV: production
+  HOST: 0.0.0.0
+  PORT: "3000"
+  USE_SSL: "false"
+  CHROME_HEADLESS: "true"
+  # Containerized Chromium commonly needs --no-sandbox unless the cluster grants a supported sandbox.
+  # Keep the pod unprivileged by default; review this if your cluster supports the Chromium sandbox.
+  DISABLE_CHROME_SANDBOX: "true"
+  LOG_LEVEL: warn
+  ENABLE_CDP_LOGGING: "false"
+  ENABLE_VERBOSE_LOGGING: "false"
+  LOG_CUSTOM_EMIT_EVENTS: "false"
+  SKIP_FINGERPRINT_INJECTION: "false"
+
+# Extra environment entries rendered directly into every container.
+extraEnv: []
+# Example:
+# - name: PROXY_URL
+#   valueFrom:
+#     secretKeyRef:
+#       name: steel-proxy
+#       key: url
+
+extraEnvFrom: []
+
+service:
+  type: ClusterIP
+  port: 3000
+  annotations: {}
+
+# CDP is not public by default. Enabling this only adds an internal ClusterIP port
+# on component Services and NetworkPolicy allows; it never creates a Gateway route.
+cdp:
+  enabled: false
+  port: 9223
+  domain: ""
+
+# Gateway API HTTPRoute for scheduler/API only. ansible-k8s-full-setup creates
+# cilium-system/main-gateway; set enabled=true and hostnames for public access.
+gateway:
+  enabled: false
+  annotations: {}
+  parentRefs:
+    - name: main-gateway
+      namespace: cilium-system
+      sectionName: https
+  hostnames: []
+  pathPrefix: /
+
+probes:
+  readiness:
+    enabled: true
+    path: /v1/health
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+  liveness:
+    enabled: true
+    tcpSocket: true
+    initialDelaySeconds: 30
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+  startup:
+    enabled: true
+    path: /v1/health
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30
+
+persistence:
+  logs:
+    enabled: false
+    existingClaim: ""
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+    mountPath: /data/logs
+  exports:
+    enabled: false
+    existingClaim: ""
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+    mountPath: /tmp/steel-browser-exports
+  cache:
+    enabled: false
+    existingClaim: ""
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 5Gi
+    mountPath: /app/.cache
+
+logStorage:
+  enabled: false
+  path: /data/logs/browser-logs.duckdb
+
+# Object storage wiring is disabled by default. Current Steel Browser builds expose
+# STEEL_REMOTE_STORAGE_ENABLED as a no-op capability flag; these conventional S3
+# variables are provided for deployments that add remote storage integrations.
+objectStorage:
+  enabled: false
+  endpoint: ""
+  bucket: steel-browser
+  region: us-east-1
+  forcePathStyle: true
+  existingSecret: ""
+  accessKeyIdKey: accessKeyId
+  secretAccessKeyKey: secretAccessKey
+
+networkPolicy:
+  enabled: true
+  gatewayNamespace: cilium-system
+  gatewayPodSelector: {}
+  # Extra ingress rules appended to the private allow-list.
+  extraIngress: []
+  # Egress policy is off by default to avoid breaking DNS/proxy/object-storage access.
+  egress:
+    enabled: false
+    extraRules: []
+
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: null
+
+keda:
+  enabled: false
+  pollingInterval: 30
+  cooldownPeriod: 300
+  minReplicaCount: 1
+  maxReplicaCount: 3
+  # Provide KEDA triggers, e.g. prometheus/cpu/queue triggers. Empty means no ScaledObject is rendered.
+  triggers: []
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+priorityClassName: ""
+terminationGracePeriodSeconds: 60
+
+dnsConfig: {}
+hostAliases: []

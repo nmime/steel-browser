@@ -8,9 +8,16 @@ import cdpSchemas from "../modules/cdp/cdp.schemas.js";
 import logsSchemas from "../modules/logs/logs.schema.js";
 import browserSchemas from "../modules/sessions/sessions.schema.js";
 import seleniumSchemas from "../modules/selenium/selenium.schema.js";
+import challengeSchemas from "../modules/challenges/challenges.schema.js";
+import profileSchemas from "../modules/profiles/profiles.schema.js";
+import proxySchemas from "../modules/proxies/proxies.schema.js";
+import vaultSchemas from "../modules/vault/vault.schema.js";
+import extensionSchemas from "../modules/extensions/extensions.schema.js";
+import telemetrySchemas from "../modules/telemetry/telemetry.schema.js";
 import scalarTheme from "./scalar-theme.js";
 import { buildJsonSchemas } from "../utils/schema.js";
 import filesSchemas from "../modules/files/files.schema.js";
+import authSchemas from "../modules/auth/auth.schema.js";
 import { getBaseUrl } from "../utils/url.js";
 
 const SCHEMAS = {
@@ -20,6 +27,13 @@ const SCHEMAS = {
   ...cdpSchemas,
   ...seleniumSchemas,
   ...filesSchemas,
+  ...challengeSchemas,
+  ...extensionSchemas,
+  ...telemetrySchemas,
+  ...authSchemas,
+  ...vaultSchemas,
+  ...profileSchemas,
+  ...proxySchemas,
 };
 
 export const { schemas, $ref } = buildJsonSchemas(SCHEMAS);
@@ -44,7 +58,10 @@ const schemaPlugin: FastifyPluginAsync = async (fastify) => {
       ],
       paths: {}, // paths must be included even if it's an empty object
       components: {
-        securitySchemes: {},
+        securitySchemes: {
+          ApiKeyAuth: { type: "apiKey", in: "header", name: "x-api-key" },
+          BearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" },
+        },
       },
     },
     refResolver: {

@@ -1,0 +1,65 @@
+# Example values for clusters created by nmime/ansible-k8s-full-setup.
+# Replace example.com and image tag/digest for your release process.
+# See also: gateway-values.yaml, seaweedfs-values.yaml, dragonfly-values.yaml,
+# vault-values.yaml, keda-values.yaml, and ansible-k8s-integrated-values.yaml.
+image:
+  repository: ghcr.io/steel-dev/steel-browser
+  tag: latest
+
+components:
+  scheduler:
+    replicas: 1
+  controlPlane:
+    replicas: 1
+  worker:
+    replicas: 1
+
+service:
+  type: ClusterIP
+
+# Public API/UI route to scheduler only.
+gateway:
+  enabled: true
+  parentRefs:
+    - name: main-gateway
+      namespace: cilium-system
+      sectionName: https
+  hostnames:
+    - steel.example.com
+
+# Hetzner CSI storage class from ansible-k8s-full-setup.
+persistence:
+  logs:
+    enabled: true
+    storageClass: hcloud-volumes
+    size: 10Gi
+  exports:
+    enabled: true
+    storageClass: hcloud-volumes
+    size: 10Gi
+logStorage:
+  enabled: true
+  path: /data/logs/browser-logs.duckdb
+
+# SeaweedFS S3-compatible endpoint from ansible-k8s-full-setup object-storage role.
+# Current Steel Browser remote storage is a capability flag/future integration, so
+# keep disabled unless your application build consumes these S3 variables.
+objectStorage:
+  enabled: false
+  endpoint: http://seaweedfs-filer.storage.svc.cluster.local:8333
+  bucket: steel-browser
+  region: us-east-1
+  forcePathStyle: true
+  existingSecret: steel-browser-object-storage
+
+cdp:
+  enabled: false
+
+networkPolicy:
+  enabled: true
+  gatewayNamespace: cilium-system
+
+hpa:
+  enabled: false
+keda:
+  enabled: false
