@@ -36,6 +36,44 @@ const workerRegistrationSchema = {
   required: ["id", "state", "capacity", "lastHeartbeatAt"],
 } as const;
 
+const recoveryStatusSchema = {
+  type: "object",
+  properties: {
+    state: {
+      type: "string",
+      enum: ["live", "interrupted", "recovering", "recovered", "failed"],
+    },
+    reason: { type: "string" },
+    interruptedAt: { type: "string" },
+    recoveryStartedAt: { type: "string" },
+    recoveredAt: { type: "string" },
+    failedAt: { type: "string" },
+    sourceWorkerId: { type: "string" },
+    replacementWorkerId: { type: "string" },
+    attempts: { type: "integer" },
+    canRecover: { type: "boolean" },
+    restoredFrom: { type: "array", items: { type: "string" } },
+    lastError: { type: "string" },
+  },
+  required: ["state", "attempts", "canRecover"],
+  additionalProperties: true,
+} as const;
+
+const recoveryEventSchema = {
+  type: "object",
+  properties: {
+    type: { type: "string" },
+    sessionId: { type: "string" },
+    workerId: { type: "string" },
+    replacementWorkerId: { type: "string" },
+    timestamp: { type: "string" },
+    reason: { type: "string" },
+    recovery: recoveryStatusSchema,
+  },
+  required: ["type", "sessionId", "timestamp", "recovery"],
+  additionalProperties: true,
+} as const;
+
 const schedulerRoutes: FastifyPluginAsync = async (server) => {
   server.get(
     "/status",
@@ -53,8 +91,27 @@ const schedulerRoutes: FastifyPluginAsync = async (server) => {
               registeredWorkers: { type: "integer" },
               workers: { type: "array", items: workerRegistrationSchema },
               sessions: { type: "array", items: { type: "object", additionalProperties: true } },
+              recoveryPolicy: {
+                type: "object",
+                properties: {
+                  enabled: { type: "boolean" },
+                  autoAllocate: { type: "boolean" },
+                  maxAttempts: { type: "integer" },
+                },
+                required: ["enabled", "autoAllocate", "maxAttempts"],
+              },
+              recoveryEvents: { type: "array", items: recoveryEventSchema },
             },
-            required: ["mode", "role", "implemented", "registeredWorkers", "workers", "sessions"],
+            required: [
+              "mode",
+              "role",
+              "implemented",
+              "registeredWorkers",
+              "workers",
+              "sessions",
+              "recoveryPolicy",
+              "recoveryEvents",
+            ],
           },
         },
       },
@@ -68,6 +125,8 @@ const schedulerRoutes: FastifyPluginAsync = async (server) => {
         registeredWorkers: workers.length,
         workers,
         sessions: server.schedulerService.listSessionMappings(),
+        recoveryPolicy: server.schedulerService.getRecoveryPolicy(),
+        recoveryEvents: server.schedulerService.getRecoveryEvents(),
       };
     },
   );

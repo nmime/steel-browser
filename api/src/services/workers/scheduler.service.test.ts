@@ -165,4 +165,100 @@ describe("SchedulerService", () => {
       workerId: "worker-a",
     });
   });
+
+  it("marks sessions interrupted when their worker heartbeat becomes stale", async () => {
+    const registry = new InMemoryWorkerRegistry(1_000);
+    const service = new SchedulerService(registry);
+    await service.registerWorker(worker({ lastHeartbeatAt: new Date().toISOString() }));
+    await service.allocate({ sessionId: "session-a" });
+    await registry.heartbeat(worker({ lastHeartbeatAt: "2026-01-01T00:00:00.000Z" }));
+
+    const result = await service.recoverStaleWorkers(new Date("2026-01-01T00:00:02.000Z"));
+
+    expect(result.staleWorkerIds).toEqual(["worker-a"]);
+    expect(service.getSessionMapping("session-a")?.recovery).toMatchObject({
+      state: "interrupted",
+      sourceWorkerId: "worker-a",
+      canRecover: false,
+    });
+    expect(service.getRecoveryEvents()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "session_interrupted", sessionId: "session-a" }),
+      ]),
+    );
+    expect(
+      service.findMappingForWebSocket("/v1/sessions/cast?sessionId=session-a"),
+    ).toBeUndefined();
+  });
+
+  it("recreates an interrupted session on a replacement worker when recovery auto-allocation is enabled", async () => {
+    const registry = new InMemoryWorkerRegistry(1_000);
+    const service = new SchedulerService(registry, {
+      recoveryEnabled: true,
+      recoveryAutoAllocate: true,
+    });
+    await service.registerWorker(
+      worker({ id: "worker-a", lastHeartbeatAt: new Date().toISOString() }),
+    );
+    await service.registerWorker(
+      worker({
+        id: "worker-b",
+        endpoint: "http://worker-b:3000/",
+        lastHeartbeatAt: new Date().toISOString(),
+      }),
+    );
+
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      return new Response(JSON.stringify({ id: body.sessionId, status: "live" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await service.routeCreateSession(
+      request({ body: { sessionId: "session-a", profileId: "profile-a" } }),
+      new FakeReply() as unknown as FastifyReply,
+    );
+    await registry.heartbeat(
+      worker({ id: "worker-a", lastHeartbeatAt: "2026-01-01T00:00:00.000Z" }),
+    );
+    await registry.heartbeat(
+      worker({
+        id: "worker-b",
+        endpoint: "http://worker-b:3000/",
+        lastHeartbeatAt: "2026-01-01T00:00:01.500Z",
+      }),
+    );
+
+    await service.recoverStaleWorkers(new Date("2026-01-01T00:00:02.000Z"));
+
+    expect(service.getSessionMapping("session-a")).toMatchObject({
+      workerId: "worker-b",
+      recovery: {
+        state: "recovered",
+        sourceWorkerId: "worker-a",
+        replacementWorkerId: "worker-b",
+        restoredFrom: ["profile"],
+      },
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://worker-a:3000/v1/sessions",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "http://worker-b:3000/v1/sessions",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "x-steel-session-recovery": "1" }),
+      }),
+    );
+    expect(service.getRecoveryEvents()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "session_recovered", sessionId: "session-a" }),
+      ]),
+    );
+  });
 });

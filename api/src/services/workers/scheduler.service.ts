@@ -32,6 +32,50 @@ export interface SessionWorkerMapping {
   endpoint: string;
   allocatedAt: string;
   lastRoutedAt?: string;
+  recovery?: SessionRecoveryStatus;
+}
+
+export type SessionRecoveryState = "live" | "interrupted" | "recovering" | "recovered" | "failed";
+
+export interface SessionRecoveryStatus {
+  state: SessionRecoveryState;
+  reason?: string;
+  interruptedAt?: string;
+  recoveryStartedAt?: string;
+  recoveredAt?: string;
+  failedAt?: string;
+  sourceWorkerId?: string;
+  replacementWorkerId?: string;
+  attempts: number;
+  canRecover: boolean;
+  restoredFrom?: Array<"profile" | "sessionContext" | "userDataDir" | "files" | "none">;
+  lastError?: string;
+}
+
+export interface SessionRecoveryEvent {
+  type:
+    | "session_interrupted"
+    | "session_recovering"
+    | "session_recovered"
+    | "session_recovery_failed";
+  sessionId: string;
+  workerId?: string;
+  replacementWorkerId?: string;
+  timestamp: string;
+  reason?: string;
+  recovery: SessionRecoveryStatus;
+}
+
+export interface SchedulerRecoveryPolicy {
+  enabled: boolean;
+  autoAllocate: boolean;
+  maxAttempts: number;
+}
+
+export interface SchedulerServiceConfig {
+  recoveryEnabled?: boolean;
+  recoveryAutoAllocate?: boolean;
+  recoveryMaxAttempts?: number;
 }
 
 export interface SchedulerAllocation extends WorkerAllocationResult {
@@ -47,6 +91,11 @@ export interface SchedulerProxyResult {
 interface ProxyTarget {
   mapping: SessionWorkerMapping;
   releaseAfterSuccess?: boolean;
+}
+
+export interface StaleWorkerRecoveryResult {
+  staleWorkerIds: string[];
+  affectedSessions: SessionWorkerMapping[];
 }
 
 const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, "");
@@ -129,10 +178,67 @@ function rewriteSessionUrls(value: unknown, request: FastifyRequest): unknown {
   };
 }
 
+function recoveryStatusForMapping(mapping: SessionWorkerMapping): SessionRecoveryStatus {
+  return (
+    mapping.recovery ?? {
+      state: "live",
+      attempts: 0,
+      canRecover: false,
+      sourceWorkerId: mapping.workerId,
+    }
+  );
+}
+
+function attachRecoveryStatus(value: unknown, mapping: SessionWorkerMapping): unknown {
+  if (!isObjectBody(value)) return value;
+  return { ...value, recovery: recoveryStatusForMapping(mapping) };
+}
+
+function canProxyMapping(mapping: SessionWorkerMapping): boolean {
+  const state = mapping.recovery?.state;
+  return !state || state === "live" || state === "recovered";
+}
+
+function restoredFrom(
+  body: Record<string, unknown> | undefined,
+): SessionRecoveryStatus["restoredFrom"] {
+  if (!body) return ["none"];
+  const sources = new Set<"profile" | "sessionContext" | "userDataDir" | "files" | "none">();
+  if (typeof body.profileId === "string") sources.add("profile");
+  if (isObjectBody(body.sessionContext)) sources.add("sessionContext");
+  if (typeof body.userDataDir === "string" || body.persist === true) sources.add("userDataDir");
+  if (Array.isArray(body.files) || isObjectBody(body.fileStorage)) sources.add("files");
+  if (sources.size === 0) sources.add("none");
+  return Array.from(sources);
+}
+
 export class SchedulerService {
   private readonly sessionWorkers = new Map<string, SessionWorkerMapping>();
+  private readonly sessionRecoveryInputs = new Map<string, Record<string, unknown>>();
+  private readonly recoveryEvents: SessionRecoveryEvent[] = [];
+  private readonly recoveryPolicy: SchedulerRecoveryPolicy;
 
-  constructor(private readonly registry: WorkerRegistry) {}
+  constructor(
+    private readonly registry: WorkerRegistry,
+    config: SchedulerServiceConfig = {},
+  ) {
+    this.recoveryPolicy = {
+      enabled: config.recoveryEnabled ?? env.STEEL_SESSION_RECOVERY_ENABLED,
+      autoAllocate: config.recoveryAutoAllocate ?? env.STEEL_SESSION_RECOVERY_AUTO_ALLOCATE,
+      maxAttempts: Math.max(
+        1,
+        Math.floor(config.recoveryMaxAttempts ?? env.STEEL_SESSION_RECOVERY_MAX_ATTEMPTS),
+      ),
+    };
+  }
+
+  getRecoveryPolicy(): SchedulerRecoveryPolicy {
+    return { ...this.recoveryPolicy };
+  }
+
+  getRecoveryEvents(): SessionRecoveryEvent[] {
+    return [...this.recoveryEvents];
+  }
 
   async registerWorker(worker: WorkerRegistration): Promise<WorkerRegistration> {
     const normalized: WorkerRegistration = {
@@ -144,7 +250,7 @@ export class SchedulerService {
   }
 
   async allocate(request: WorkerAllocationRequest = {}): Promise<SchedulerAllocation> {
-    await this.registry.pruneStale();
+    await this.recoverStaleWorkers();
 
     if (request.sessionId) {
       const existing = this.sessionWorkers.get(request.sessionId);
@@ -162,19 +268,7 @@ export class SchedulerService {
       }
     }
 
-    const workers = await this.registry.list();
-    const assignedByWorker = new Map<string, number>();
-    for (const mapping of this.sessionWorkers.values()) {
-      assignedByWorker.set(mapping.workerId, (assignedByWorker.get(mapping.workerId) ?? 0) + 1);
-    }
-
-    const worker = workers.find((candidate) => {
-      if (!candidate.endpoint) return false;
-      if (candidate.state !== "ready") return false;
-      if (!candidate.capacity.acceptingSessions) return false;
-      const reserved = assignedByWorker.get(candidate.id) ?? 0;
-      return candidate.capacity.availableSessions - reserved > 0;
-    });
+    const worker = await this.findAvailableWorker();
 
     if (!worker) {
       return {
@@ -206,7 +300,29 @@ export class SchedulerService {
     return mapping;
   }
 
+  async recoverStaleWorkers(now = new Date()): Promise<StaleWorkerRecoveryResult> {
+    const staleWorkerIds = await this.registry.pruneStale(now);
+    if (staleWorkerIds.length === 0) return { staleWorkerIds, affectedSessions: [] };
+
+    const staleWorkers = new Set(staleWorkerIds);
+    const affectedSessions: SessionWorkerMapping[] = [];
+    for (const mapping of this.sessionWorkers.values()) {
+      if (!staleWorkers.has(mapping.workerId)) continue;
+      const affected = this.markSessionInterrupted(
+        mapping,
+        `Worker heartbeat timed out after ${env.WORKER_STALE_AFTER_MS}ms.`,
+      );
+      affectedSessions.push(affected);
+      if (this.recoveryPolicy.enabled && this.recoveryPolicy.autoAllocate) {
+        await this.recoverSessionOnReplacement(affected);
+      }
+    }
+
+    return { staleWorkerIds, affectedSessions };
+  }
+
   releaseSession(sessionId: string): boolean {
+    this.sessionRecoveryInputs.delete(sessionId);
     return this.sessionWorkers.delete(sessionId);
   }
 
@@ -229,14 +345,164 @@ export class SchedulerService {
   }
 
   async listWorkers(): Promise<WorkerRegistration[]> {
-    await this.registry.pruneStale();
+    await this.recoverStaleWorkers();
     return this.registry.list();
+  }
+
+  private async findAvailableWorker(
+    excludedWorkerIds = new Set<string>(),
+  ): Promise<WorkerRegistration | undefined> {
+    const workers = await this.registry.list();
+    const assignedByWorker = new Map<string, number>();
+    for (const mapping of this.sessionWorkers.values()) {
+      if (!canProxyMapping(mapping)) continue;
+      assignedByWorker.set(mapping.workerId, (assignedByWorker.get(mapping.workerId) ?? 0) + 1);
+    }
+
+    return workers.find((candidate) => {
+      if (excludedWorkerIds.has(candidate.id)) return false;
+      if (!candidate.endpoint) return false;
+      if (candidate.state !== "ready") return false;
+      if (!candidate.capacity.acceptingSessions) return false;
+      const reserved = assignedByWorker.get(candidate.id) ?? 0;
+      return candidate.capacity.availableSessions - reserved > 0;
+    });
+  }
+
+  private markSessionInterrupted(
+    mapping: SessionWorkerMapping,
+    reason: string,
+  ): SessionWorkerMapping {
+    const now = new Date().toISOString();
+    const recovery: SessionRecoveryStatus = {
+      ...(mapping.recovery ?? { attempts: 0, canRecover: this.recoveryPolicy.enabled }),
+      state: this.recoveryPolicy.enabled ? "recovering" : "interrupted",
+      reason,
+      interruptedAt: mapping.recovery?.interruptedAt ?? now,
+      recoveryStartedAt: this.recoveryPolicy.enabled
+        ? mapping.recovery?.recoveryStartedAt ?? now
+        : mapping.recovery?.recoveryStartedAt,
+      sourceWorkerId: mapping.recovery?.sourceWorkerId ?? mapping.workerId,
+      canRecover: this.recoveryPolicy.enabled,
+      restoredFrom: restoredFrom(this.sessionRecoveryInputs.get(mapping.sessionId)),
+    };
+    const next = { ...mapping, recovery };
+    this.sessionWorkers.set(mapping.sessionId, next);
+    this.recordRecoveryEvent(
+      this.recoveryPolicy.enabled ? "session_recovering" : "session_interrupted",
+      next,
+      reason,
+    );
+    return next;
+  }
+
+  private async recoverSessionOnReplacement(mapping: SessionWorkerMapping): Promise<void> {
+    const input = this.sessionRecoveryInputs.get(mapping.sessionId);
+    const sourceWorkerId = mapping.recovery?.sourceWorkerId ?? mapping.workerId;
+    const attempts = (mapping.recovery?.attempts ?? 0) + 1;
+    if (attempts > this.recoveryPolicy.maxAttempts) {
+      this.markRecoveryFailed(mapping, "Maximum session recovery attempts reached.");
+      return;
+    }
+
+    const worker = await this.findAvailableWorker(new Set([sourceWorkerId]));
+    if (!worker) {
+      this.markRecoveryFailed(mapping, "No replacement worker currently has available capacity.");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const recovery: SessionRecoveryStatus = {
+      ...(mapping.recovery ?? { canRecover: true }),
+      state: "recovering",
+      attempts,
+      canRecover: true,
+      recoveryStartedAt: mapping.recovery?.recoveryStartedAt ?? now,
+      sourceWorkerId,
+      replacementWorkerId: worker.id,
+      restoredFrom: restoredFrom(input),
+      reason: "Best-effort recovery is starting on a replacement worker.",
+    };
+    const recoveringMapping: SessionWorkerMapping = {
+      ...mapping,
+      workerId: worker.id,
+      endpoint: trimTrailingSlash(worker.endpoint!),
+      allocatedAt: now,
+      recovery,
+    };
+    this.sessionWorkers.set(mapping.sessionId, recoveringMapping);
+    this.recordRecoveryEvent("session_recovering", recoveringMapping, recovery.reason);
+
+    try {
+      const response = await fetch(`${recoveringMapping.endpoint}/v1/sessions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-steel-scheduler": "1",
+          "x-steel-session-recovery": "1",
+        },
+        body: JSON.stringify({ ...(input ?? {}), sessionId: mapping.sessionId }),
+      });
+      if (!response.ok) {
+        throw new Error(`Replacement worker returned ${response.status}`);
+      }
+
+      const recovered: SessionWorkerMapping = {
+        ...recoveringMapping,
+        recovery: {
+          ...recovery,
+          state: "recovered",
+          reason:
+            "Session was recreated on a replacement worker using available persisted inputs; this is not live Chrome process migration.",
+          recoveredAt: new Date().toISOString(),
+        },
+      };
+      this.sessionWorkers.set(mapping.sessionId, recovered);
+      this.recordRecoveryEvent("session_recovered", recovered, recovered.recovery?.reason);
+    } catch (error) {
+      this.markRecoveryFailed(recoveringMapping, getErrors(error));
+    }
+  }
+
+  private markRecoveryFailed(mapping: SessionWorkerMapping, reason: string): void {
+    const failed: SessionWorkerMapping = {
+      ...mapping,
+      recovery: {
+        ...(mapping.recovery ?? { attempts: 0, canRecover: this.recoveryPolicy.enabled }),
+        state: "failed",
+        reason,
+        failedAt: new Date().toISOString(),
+        canRecover: this.recoveryPolicy.enabled,
+        lastError: reason,
+      },
+    };
+    this.sessionWorkers.set(mapping.sessionId, failed);
+    this.recordRecoveryEvent("session_recovery_failed", failed, reason);
+  }
+
+  private recordRecoveryEvent(
+    type: SessionRecoveryEvent["type"],
+    mapping: SessionWorkerMapping,
+    reason?: string,
+  ): void {
+    const event: SessionRecoveryEvent = {
+      type,
+      sessionId: mapping.sessionId,
+      workerId: mapping.recovery?.sourceWorkerId ?? mapping.workerId,
+      replacementWorkerId: mapping.recovery?.replacementWorkerId,
+      timestamp: new Date().toISOString(),
+      reason,
+      recovery: recoveryStatusForMapping(mapping),
+    };
+    this.recoveryEvents.push(event);
+    if (this.recoveryEvents.length > 100) this.recoveryEvents.shift();
   }
 
   async routeHttpRequest(
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<SchedulerProxyResult> {
+    await this.recoverStaleWorkers();
     const method = request.method.toUpperCase();
     const rawUrl = request.raw.url ?? request.url;
     const url = new URL(rawUrl, "http://steel.local");
@@ -259,6 +525,16 @@ export class SchedulerService {
 
     const target = this.targetForSessionRequest(request, url.pathname);
     if (!target) return { proxied: false };
+    if (!canProxyMapping(target.mapping)) {
+      reply.code(503).send({
+        success: false,
+        message:
+          "Session is unavailable while best-effort recovery is pending or failed; Chrome process migration is not supported.",
+        sessionId: target.mapping.sessionId,
+        recovery: recoveryStatusForMapping(target.mapping),
+      });
+      return { proxied: true, reason: target.mapping.recovery?.reason };
+    }
 
     const response = await this.forwardHttp(request, target.mapping, rawUrl);
     await this.sendFetchResponse(reply, response, request, target.mapping, true);
@@ -286,7 +562,9 @@ export class SchedulerService {
     }
 
     const originalBody = isObjectBody(request.body) ? request.body : {};
-    request.body = { ...originalBody, sessionId: allocation.sessionId };
+    const recoveryInput = { ...originalBody, sessionId: allocation.sessionId };
+    request.body = recoveryInput;
+    this.sessionRecoveryInputs.set(allocation.sessionId, recoveryInput);
 
     const response = await this.forwardHttp(
       request,
@@ -307,6 +585,14 @@ export class SchedulerService {
     const sessions: unknown[] = [];
     const failures: Array<Record<string, unknown>> = [];
     for (const mapping of this.listSessionMappings()) {
+      if (!canProxyMapping(mapping)) {
+        sessions.push({
+          id: mapping.sessionId,
+          status: "failed",
+          recovery: recoveryStatusForMapping(mapping),
+        });
+        continue;
+      }
       try {
         const response = await fetch(
           `${mapping.endpoint}/v1/sessions/${encodeURIComponent(mapping.sessionId)}`,
@@ -324,7 +610,7 @@ export class SchedulerService {
           continue;
         }
         const session = await response.json();
-        sessions.push(rewriteSessionUrls(session, request));
+        sessions.push(attachRecoveryStatus(rewriteSessionUrls(session, request), mapping));
       } catch (error) {
         failures.push({
           sessionId: mapping.sessionId,
@@ -385,7 +671,8 @@ export class SchedulerService {
     const contentType = response.headers.get("content-type") ?? "";
     if (contentType.includes("application/json")) {
       const json = await response.json();
-      reply.send(rewriteUrls ? rewriteSessionUrls(json, request) : json);
+      const rewritten = rewriteUrls ? rewriteSessionUrls(json, request) : json;
+      reply.send(attachRecoveryStatus(rewritten, mapping));
       return;
     }
 
@@ -420,8 +707,11 @@ export class SchedulerService {
       querySessionId ??
       (Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId);
 
-    if (sessionId) return this.sessionWorkers.get(sessionId);
-    const mappings = this.listSessionMappings();
+    if (sessionId) {
+      const mapping = this.sessionWorkers.get(sessionId);
+      return mapping && canProxyMapping(mapping) ? mapping : undefined;
+    }
+    const mappings = this.listSessionMappings().filter(canProxyMapping);
     return mappings.length === 1 ? mappings[0] : undefined;
   }
 

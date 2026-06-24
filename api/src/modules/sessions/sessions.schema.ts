@@ -115,6 +115,28 @@ const CreateSession = z.object({
   headless: z.boolean().optional().describe("Headless mode for the session"),
 });
 
+const SessionRecovery = z
+  .object({
+    state: z
+      .enum(["live", "interrupted", "recovering", "recovered", "failed"])
+      .describe("Best-effort scheduler recovery state for this session."),
+    reason: z.string().optional().describe("Human-readable recovery reason."),
+    interruptedAt: z.string().datetime().optional(),
+    recoveryStartedAt: z.string().datetime().optional(),
+    recoveredAt: z.string().datetime().optional(),
+    failedAt: z.string().datetime().optional(),
+    sourceWorkerId: z.string().optional(),
+    replacementWorkerId: z.string().optional(),
+    attempts: z.number().int().nonnegative().optional(),
+    canRecover: z.boolean().optional(),
+    restoredFrom: z
+      .array(z.enum(["profile", "sessionContext", "userDataDir", "files", "none"]))
+      .optional()
+      .describe("Inputs reused during best-effort recovery. This is not live process migration."),
+    lastError: z.string().optional(),
+  })
+  .describe("Best-effort session recovery metadata exposed by scheduler mode.");
+
 const SessionDetails = z.object({
   id: z.string().uuid().describe("Unique identifier for the session"),
   createdAt: z.string().datetime().describe("Timestamp when the session started"),
@@ -154,6 +176,7 @@ const SessionDetails = z.object({
   solveCaptcha: z.boolean().optional().describe("Indicates if captcha solving is enabled"),
   isSelenium: z.boolean().optional().describe("Indicates if Selenium is used in the session"),
   deviceConfig: deviceConfigSchema,
+  recovery: SessionRecovery.optional(),
 });
 
 const ReleaseSession = SessionDetails.merge(

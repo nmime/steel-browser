@@ -19,6 +19,10 @@ All flags default to `false` unless noted.
 | `STEEL_CONTROL_PLANE_ENABLED` | Registers the no-op control-plane routes when true. | Enable control-plane APIs. |
 | `STEEL_CONTROL_PLANE_PATH` | Route prefix, default `/v1/control-plane`. | Allow operators to mount the control plane under a stable path. |
 | `STEEL_WORKER_ENABLED` | Reported by the no-op status service only. | Enable worker registration/heartbeats/leases. |
+| `STEEL_SESSION_RECOVERY_ENABLED` | Enables scheduler recovery state when a worker heartbeat expires. Default `false`. | Mark sessions as recovering and allow best-effort restoration metadata. |
+| `STEEL_SESSION_RECOVERY_AUTO_ALLOCATE` | When recovery is enabled, asks the scheduler to allocate a replacement idle worker and recreate the session from available inputs. Default `false`. | Replacement worker recovery policy. |
+| `STEEL_SESSION_RECOVERY_MAX_ATTEMPTS` | Maximum replacement attempts per interrupted session. Default `1`. | Bound retry behavior. |
+| `STEEL_SESSION_RECOVERY_SWEEP_INTERVAL_MS` | Scheduler stale-worker sweep interval. Default `5000`. | Periodic health/recovery sweep. |
 | `STEEL_REMOTE_STORAGE_ENABLED` | Reported by the no-op status service only. | Enable durable metadata/artifact storage. |
 | `STEEL_CHALLENGE_DETECTION_ENABLED` | Reported by the no-op status service only. | Enable challenge detection metadata and operator-visible state, not bypass/solving. |
 | `STEEL_PROXY_MANAGEMENT_ENABLED` | Reported by the no-op status service only. | Enable proxy inventory and policy. |
@@ -29,12 +33,15 @@ With `STEEL_CONTROL_PLANE_ENABLED=true`, the API registers:
 
 - `GET /v1/control-plane/status`
 
+Scheduler mode also exposes recovery metadata on `GET /v1/scheduler/status` and adds an optional `recovery` object to scheduler-proxied session responses.
+
 The response is a no-op capability report. Each capability includes `enabled` and `implemented`. In this foundation, `implemented` is always `false`.
 
 ## Boundaries for future work
 
 - Auth must be fail-closed before protecting existing routes.
 - Worker scheduling must be introduced behind leases/heartbeats and should not change current local session behavior until explicitly enabled.
+- Recovery is best-effort failover only. Steel cannot transparently migrate a live Chrome process, WebSocket, in-memory page state, or OS process across workers/pods. When a worker heartbeat exceeds `WORKER_STALE_AFTER_MS`, the scheduler marks affected mappings `interrupted` (or `recovering` if recovery is enabled). If auto-allocation is enabled, it may create a new browser session on a replacement worker using the original create-session inputs that are safe and available to the scheduler, such as `profileId`/`profileVersion`, `sessionContext`, and `userDataDir`/persisted profile data. Operators and clients must treat the recovered browser as a recreated session, not a migrated one.
 - Remote storage must redact credentials and avoid logging raw signed URLs, tokens, proxy credentials, cookies, or API keys.
 - Challenge detection may classify and surface state; it must not integrate CAPTCHA solvers or automate bypasses.
 - Proxy management should treat proxy URLs as secrets and use the shared redaction utility in logs/errors.
